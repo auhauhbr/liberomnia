@@ -39,10 +39,11 @@ def main():
             try:
                 opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
-                def request(path, origin=None, method="GET"):
+                def request(path, origin=None, method="GET", body=None, extra_headers=None):
                     headers = {"Origin": origin} if origin else {}
+                    headers.update(extra_headers or {})
                     return opener.open(urllib.request.Request(
-                        f"http://127.0.0.1:{port}{path}", headers=headers, method=method), timeout=2)
+                        f"http://127.0.0.1:{port}{path}", headers=headers, method=method, data=body), timeout=2)
 
                 deadline = time.monotonic() + 10
                 while True:
@@ -71,6 +72,55 @@ def main():
                 for origin in (None, "https://untrusted.example", "http://localhost:5173.evil.example"):
                     with request("/api/health", origin) as response:
                         assert response.headers.get("Access-Control-Allow-Origin") is None
+
+                def expect_error(path, status, code, method="POST", body=b'{"text":"books"}', headers=None):
+                    try:
+                        request(path, "http://localhost:5173", method, body,
+                                headers or {"Content-Type": "application/json"}).close()
+                        raise AssertionError("Expected an error response")
+                    except urllib.error.HTTPError as error:
+                        assert error.code == status, (error.code, status, error.read())
+                        payload = json.load(error)
+                        assert payload["apiVersion"] == "1"
+                        assert payload["error"]["code"] == code, payload
+                        assert "session" not in payload
+                        assert error.headers["Access-Control-Allow-Origin"] == "http://localhost:5173"
+
+                expect_error("/api/search", 503, "no_available_providers")
+                expect_error("/api/search", 503, "no_available_providers", body=b'{"text":"books","sourceIds":["gallica"]}')
+                expect_error("/api/search", 503, "no_available_providers", body=b'{"text":"books","sourceIds":["annas-archive"]}')
+                expect_error("/api/search", 400, "invalid_json", body=b'{broken')
+                expect_error("/api/search", 400, "invalid_json", body=b'{"text":"a","text":"b"}')
+                expect_error("/api/search", 422, "invalid_request", body=b'{"text":" "}')
+                expect_error("/api/search", 422, "invalid_request", body=b'{"text":"a","publication":{"from":1900,"to":1801}}')
+                expect_error("/api/search", 422, "unknown_source", body=b'{"text":"a","sourceIds":["missing"]}')
+                expect_error("/api/search", 422, "invalid_request", body=json.dumps({"text": "a", "sourceIds": ["source-" + str(i) for i in range(17)]}).encode())
+                expect_error("/api/search", 415, "unsupported_media_type", headers={"Content-Type": "text/plain"})
+                for suffix, method in (("", "GET"), ("/results", "GET"), ("/cancel", "POST")):
+                    expect_error("/api/search/" + "a" * 32 + suffix, 404, "session_not_found", method=method, body=None)
+                with request("/api/search", "http://localhost:5173", "OPTIONS", extra_headers={
+                    "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "content-type"
+                }) as response:
+                    assert response.status == 204
+                    assert "POST" in response.headers["Access-Control-Allow-Methods"]
+                    assert response.headers["Access-Control-Allow-Headers"] == "Content-Type"
+                try:
+                    request("/api/search", "https://untrusted.example", "OPTIONS", extra_headers={
+                        "Access-Control-Request-Method": "POST"
+                    }).close()
+                    raise AssertionError("Untrusted preflight succeeded")
+                except urllib.error.HTTPError as error:
+                    assert error.code == 403
+                    assert error.headers.get("Access-Control-Allow-Origin") is None
+                for method, headers in (("DELETE", "content-type"), ("POST", "x-arbitrary")):
+                    expect_error("/api/search", 403, "invalid_preflight", method="OPTIONS", body=None,
+                                 headers={"Access-Control-Request-Method": method, "Access-Control-Request-Headers": headers})
+                try:
+                    request("/api/search", method="POST", body=b"x" * 16385,
+                            extra_headers={"Content-Type": "application/json"}).close()
+                    raise AssertionError("Oversized body was accepted")
+                except urllib.error.HTTPError as error:
+                    assert error.code == 413
 
                 for path, method in (("/api/search", "GET"), ("/api/health", "POST")):
                     try:

@@ -8,7 +8,8 @@
 namespace liberomnia::http {
 
 [[nodiscard]] drogon::HttpResponsePtr health_response();
-[[nodiscard]] drogon::HttpResponsePtr sources_response();
-void configure_application(drogon::HttpAppFramework& app, const Config& config);
+[[nodiscard]] drogon::HttpResponsePtr sources_response(const search::ProviderRegistry& registry);
+void configure_application(drogon::HttpAppFramework& app, const Config& config,
+                           std::shared_ptr<search::SearchCoordinator> coordinator);
 
 } // namespace liberomnia::http

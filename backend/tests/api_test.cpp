@@ -1,4 +1,5 @@
 #include "liberomnia/api.hpp"
+#include "liberomnia/source_catalog.hpp"
 
 #include <gtest/gtest.h>
 #include <set>
@@ -15,7 +16,7 @@ TEST(Api, HealthReturnsVersionedJson) {
 }
 
 TEST(Api, CatalogContainsDistinctPlannedSourcesAndCapabilities) {
-    const auto response = liberomnia::http::sources_response();
+    const auto response = liberomnia::http::sources_response(liberomnia::search::ProviderRegistry(liberomnia::source_catalog()));
     EXPECT_EQ(response->statusCode(), drogon::k200OK);
     const auto body = response->getJsonObject();
     ASSERT_NE(body, nullptr);
