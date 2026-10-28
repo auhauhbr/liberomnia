@@ -1,4 +1,4 @@
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch, type InjectionKey } from 'vue'
 
 export type SearchMode = 'general' | 'title' | 'author' | 'subject' | 'passage'
 type Period = 'any' | 'nineteenth' | 'twentieth' | 'custom'
@@ -29,3 +29,6 @@ export function useSearchForm() {
   function customizePeriod() { period.value = 'custom' }
   return { form, period, rangeError, customizePeriod }
 }
+
+export type SearchFormState = ReturnType<typeof useSearchForm>
+export const searchFormKey: InjectionKey<SearchFormState> = Symbol('search-form')
