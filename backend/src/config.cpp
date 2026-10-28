@@ -87,6 +87,17 @@ Config Config::from_environment(const Environment& environment) {
     config.search.max_records_per_session = limit("LIBEROMNIA_SEARCH_MAX_RECORDS", 200, 1000);
     config.search.provider_timeout = std::chrono::milliseconds(limit("LIBEROMNIA_SEARCH_TIMEOUT_MS", 8000, 300000));
     config.search.session_ttl = std::chrono::milliseconds(limit("LIBEROMNIA_SEARCH_SESSION_TTL_MS", 900000, 86400000));
+    if (auto enabled = environment("GOOGLE_BOOKS_ENABLED")) {
+        if (*enabled != "true" && *enabled != "false") throw std::invalid_argument("GOOGLE_BOOKS_ENABLED must be true or false");
+        config.google_books_enabled = *enabled == "true";
+    }
+    if (auto key = environment("GOOGLE_BOOKS_API_KEY")) config.google_books.api_key = *key;
+    config.google_books.page_size = limit("GOOGLE_BOOKS_PAGE_SIZE", 40, 40);
+    config.google_books.max_pages = limit("GOOGLE_BOOKS_MAX_PAGES", 3, 10);
+    config.google_books.call_budget = limit("GOOGLE_BOOKS_CALL_BUDGET", 4, 11);
+    config.google_books.max_response_bytes = limit("GOOGLE_BOOKS_MAX_RESPONSE_BYTES", 1048576, 4194304);
+    config.google_books.timeout = std::chrono::milliseconds(limit("GOOGLE_BOOKS_TIMEOUT_MS", 6000, 30000));
+    if (!config.google_books.is_valid()) throw std::invalid_argument("Invalid Google Books limits or credential configuration");
     return config;
 }
 
@@ -94,3 +105,12 @@ std::filesystem::path Config::database_path() const {
     return data_directory / "liberomnia.sqlite3";
 }
 } // namespace liberomnia
+
+namespace liberomnia::search {
+bool GoogleBooksOptions::is_valid() const {
+    return page_size >= 1 && page_size <= 40 && max_pages >= 1 && max_pages <= 10 &&
+        call_budget >= 1 && call_budget <= 11 && max_response_bytes >= 1024 && max_response_bytes <= 4194304 &&
+        timeout.count() >= 1 && timeout <= std::chrono::seconds(30) && api_key.size() <= 256 &&
+        api_key.find_first_of("\r\n") == std::string::npos;
+}
+}

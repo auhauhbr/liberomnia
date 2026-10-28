@@ -1,6 +1,7 @@
 #pragma once
 
 #include "liberomnia/search_coordinator.hpp"
+#include "liberomnia/google_books_options.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -19,6 +20,8 @@ struct Config {
     std::filesystem::path data_directory{"./data"};
     std::string frontend_origin{"http://localhost:5173"};
     search::CoordinatorOptions search;
+    search::GoogleBooksOptions google_books;
+    bool google_books_enabled{true};
 
     [[nodiscard]] static Config from_environment();
     [[nodiscard]] static Config from_environment(const Environment& environment);

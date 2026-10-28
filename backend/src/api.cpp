@@ -40,8 +40,9 @@ drogon::HttpResponsePtr sources_response(const search::ProviderRegistry& registr
         item["id"] = source.id;
         item["name"] = source.name;
         item["integrationType"] = source.integration_type == IntegrationType::api ? "api" : "external";
-        item["implementationStatus"] = source.implementation_status == ImplementationStatus::available
-                                           ? "available" : source.implementation_status == ImplementationStatus::temporarily_unavailable
+        const auto status = entry.adapter ? entry.adapter->implementation_status() : source.implementation_status;
+        item["implementationStatus"] = status == ImplementationStatus::available
+                                           ? "available" : status == ImplementationStatus::temporarily_unavailable
                                            ? "temporarily_unavailable" : "planned";
         item["filterSupport"]["publication"] = std::string(search::name(entry.capabilities.publication));
         item["filterSupport"]["language"] = std::string(search::name(entry.capabilities.language));

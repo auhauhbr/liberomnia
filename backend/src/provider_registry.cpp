@@ -38,7 +38,8 @@ bool ProviderRegistry::search_available() const noexcept {
     for (const auto& [id, entry] : entries_) {
         (void)id;
         if (entry.adapter && !entry.capabilities.fields.empty() &&
-            entry.source.implementation_status == ImplementationStatus::available) return true;
+            entry.source.implementation_status == ImplementationStatus::available &&
+            entry.adapter->implementation_status() == ImplementationStatus::available) return true;
     }
     return false;
 }

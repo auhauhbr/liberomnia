@@ -9,6 +9,7 @@ include(CTest)
 find_package(SQLite3 REQUIRED)
 find_package(Drogon 1.9 CONFIG REQUIRED)
 find_package(Threads REQUIRED)
+find_package(CURL 7.85 REQUIRED)
 
 add_library(liberomnia_core
     src/config.cpp
@@ -23,8 +24,8 @@ target_include_directories(liberomnia_core PUBLIC include)
 target_compile_features(liberomnia_core PUBLIC cxx_std_20)
 set_target_properties(liberomnia_core PROPERTIES CXX_EXTENSIONS OFF)
 
-add_library(liberomnia_http src/api.cpp src/search_api.cpp)
-target_link_libraries(liberomnia_http PUBLIC liberomnia_core Drogon::Drogon)
+add_library(liberomnia_http src/api.cpp src/search_api.cpp src/google_books_provider.cpp src/books_http_client.cpp)
+target_link_libraries(liberomnia_http PUBLIC liberomnia_core Drogon::Drogon CURL::libcurl)
 
 # A linkage boundary for future repositories; no database is opened at startup.
 add_library(liberomnia_persistence INTERFACE)
@@ -41,7 +42,7 @@ endif()
 
 if(BUILD_TESTING)
     find_package(GTest CONFIG REQUIRED)
-    add_executable(liberomnia_tests tests/config_test.cpp tests/models_test.cpp tests/api_test.cpp
+    add_executable(liberomnia_tests tests/google_books_test.cpp tests/config_test.cpp tests/models_test.cpp tests/api_test.cpp
         tests/coordinator_test.cpp tests/search_api_test.cpp tests/normalization_test.cpp)
     target_link_libraries(liberomnia_tests PRIVATE liberomnia_http GTest::gtest_main)
     include(GoogleTest)
@@ -58,6 +59,18 @@ if(BUILD_TESTING)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/search_http_integration.py
                 $<TARGET_FILE:liberomnia_http_test_server>)
     set_tests_properties(search_http_integration PROPERTIES TIMEOUT 30)
+    add_executable(liberomnia_books_http_test_server tests/google_books_http_server.cpp)
+    target_link_libraries(liberomnia_books_http_test_server PRIVATE liberomnia_http)
+    add_test(NAME google_books_http_integration
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/google_books_http_integration.py
+                $<TARGET_FILE:liberomnia_books_http_test_server>)
+    set_tests_properties(google_books_http_integration PROPERTIES TIMEOUT 30)
 endif()
 
 install(TARGETS liberomnia_server RUNTIME DESTINATION bin)
+
+option(LIBEROMNIA_LIVE_CHECK "Build the optional Google Books network diagnostic (never registered in CTest)" OFF)
+if(LIBEROMNIA_LIVE_CHECK)
+    add_executable(liberomnia_books_live tests/google_books_live.cpp)
+    target_link_libraries(liberomnia_books_live PRIVATE liberomnia_http)
+endif()
