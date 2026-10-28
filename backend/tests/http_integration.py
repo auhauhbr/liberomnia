@@ -19,7 +19,7 @@ def main():
         port = listener.getsockname()[1]
     with tempfile.TemporaryDirectory(prefix="liberomnia-test-") as directory:
         environment = dict(os.environ, LIBEROMNIA_ADDRESS="127.0.0.1",
-                           LIBEROMNIA_PORT=str(port), LIBEROMNIA_DATA_DIR=directory,
+                           LIBEROMNIA_PORT=str(port), GOOGLE_BOOKS_ENABLED="false", LIBEROMNIA_DATA_DIR=directory,
                            LIBEROMNIA_FRONTEND_ORIGIN="http://localhost:5173")
         invalid = subprocess.run([executable], cwd=directory,
                                  env=dict(environment, LIBEROMNIA_PORT="invalid"),
@@ -67,7 +67,7 @@ def main():
                     assert catalog["apiVersion"] == "1"
                     assert catalog["searchAvailable"] is False
                     assert len(catalog["sources"]) == 5
-                    assert all(s["implementationStatus"] == "planned" for s in catalog["sources"])
+                    assert all(s["implementationStatus"] == ("temporarily_unavailable" if s["id"] == "google-books" else "planned") for s in catalog["sources"])
 
                 for origin in (None, "https://untrusted.example", "http://localhost:5173.evil.example"):
                     with request("/api/health", origin) as response:

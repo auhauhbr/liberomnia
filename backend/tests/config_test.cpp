@@ -49,6 +49,21 @@ TEST(Config, ValidatesSearchResourceLimits) {
     }
 }
 
+TEST(Config, ValidatesGoogleBooksLimitsWithoutEmbeddingCredentials) {
+    EXPECT_TRUE(load().google_books_enabled);
+    EXPECT_TRUE(load().google_books.api_key.empty());
+    EXPECT_FALSE(load({{"GOOGLE_BOOKS_ENABLED", "false"}}).google_books_enabled);
+    EXPECT_THROW(load({{"GOOGLE_BOOKS_ENABLED", "yes"}}), std::invalid_argument);
+    for (auto [key, maximum] : std::vector<std::pair<std::string,int>>{
+        {"GOOGLE_BOOKS_PAGE_SIZE",40}, {"GOOGLE_BOOKS_MAX_PAGES",10}, {"GOOGLE_BOOKS_CALL_BUDGET",11},
+        {"GOOGLE_BOOKS_TIMEOUT_MS",30000}, {"GOOGLE_BOOKS_MAX_RESPONSE_BYTES",4194304}}) {
+        EXPECT_THROW(load({{key,"0"}}), std::invalid_argument);
+        EXPECT_THROW(load({{key,std::to_string(maximum+1)}}), std::invalid_argument);
+        EXPECT_NO_THROW(load({{key,std::to_string(maximum)}}));
+    }
+    EXPECT_THROW(load({{"GOOGLE_BOOKS_MAX_RESPONSE_BYTES","1023"}}), std::invalid_argument);
+}
+
 TEST(Config, RejectsInvalidAddressAndDataPath) {
     EXPECT_THROW(load({{"LIBEROMNIA_ADDRESS", "localhost"}}), std::invalid_argument);
     EXPECT_THROW(load({{"LIBEROMNIA_ADDRESS", "999.1.2.3"}}), std::invalid_argument);
