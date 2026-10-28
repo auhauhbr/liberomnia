@@ -164,3 +164,21 @@ h2 { font-family: var(--serif); font-size: 29px; letter-spacing: -.65px; font-we
   .hero-footnote { font-size: 10px; gap: 6px; }
   .small-rule { width: 12px; }
 }
+
+.search-results { max-width: 1100px; margin: 2rem auto 4rem; padding: 0 1rem; text-align: left; }
+.search-results h2 { font-family: Georgia, serif; font-size: 2rem; }
+.bibliographic-card { margin: 1.3rem 0; padding: 1.5rem; border: 1px solid #d8d1c2; border-radius: 12px; background: #fffcf5; overflow-wrap: anywhere; }
+.bibliographic-card--local { border-left: 4px solid #8b692f; }
+.bibliographic-card h3 { margin: .7rem 0 .3rem; font-family: Georgia, serif; font-size: 1.6rem; }
+.result-tags, .book-access { display: flex; gap: .7rem; flex-wrap: wrap; }
+.result-tags span { border-radius: 5px; background: #eee9db; padding: .25rem .55rem; font-size: .8rem; }
+.book-metadata { display: flex; flex-wrap: wrap; gap: 1rem 2rem; margin: 1rem 0; }
+.book-metadata dt { font-size: .8rem; color: #665f51; }
+.book-metadata dd { margin: .2rem 0; }
+.book-access { list-style: none; padding: 0; }
+.bibliographic-card a { color: #315b46; margin-right: .7rem; text-underline-offset: 3px; }
+.book-identifiers, .access-note { font-size: .85rem; color: #625c51; }
+.source-excerpt { padding: .7rem 1rem; margin-top: 1rem; background: #f0ece1; border-radius: 6px; }
+.source-excerpt p { font-size: .8rem; }
+.source-excerpt blockquote { margin: .5rem 0; white-space: pre-wrap; }
+.cancel-search { margin-top: 1rem; }
