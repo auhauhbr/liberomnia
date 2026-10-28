@@ -57,6 +57,7 @@ export interface SourceProgress {
   recordsRejected: number
   searchCompleted: boolean
   localFiltersApplied: boolean
+  fallbackUsed?: boolean
   coverageIncomplete: boolean
   resultLimitReached: boolean
   filters: { id: string; support: FilterSupport }[]
@@ -71,7 +72,7 @@ export interface SearchSession {
   hasErrors: boolean
   sources: SourceProgress[]
 }
-export interface AccessInfo { availability: AccessAvailability; url: string | null }
+export interface AccessInfo { availability: AccessAvailability; url: string | null; viewability?: string | null; format?: string | null }
 export interface TextualEvidence {
   kind: 'confirmed_occurrence' | 'source_excerpt' | 'approximate_match' | 'unverified'
   text: string | null
@@ -81,6 +82,14 @@ export interface BibliographicRecord {
   sourceId: string
   sourceRecordId: string
   title: string
+  subtitle?: string | null
+  publishedDate?: string | null
+  accessCountry?: string | null
+  publicDomain?: boolean | null
+  pdfAvailable?: boolean | null
+  epubAvailable?: boolean | null
+  previewUrl?: string | null
+  infoUrl?: string | null
   authors: string[]
   edition: string | null
   publisher: string | null

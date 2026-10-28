@@ -7,7 +7,7 @@ defineEmits<{ retry: [] }>()
 
 const labels: Record<string, string> = {
   general: 'Geral', title: 'Título', author: 'Autor', subject: 'Assunto',
-  language: 'Idioma', publicationRange: 'Período', passage: 'Trecho', externalSearch: 'Pesquisa externa',
+  language: 'Idioma', availability: 'Disponibilidade', publicationRange: 'Período', passage: 'Trecho', externalSearch: 'Pesquisa externa',
 }
 </script>
 
@@ -15,9 +15,9 @@ const labels: Record<string, string> = {
   <section id="sources" class="sources-section" aria-labelledby="sources-title" :aria-busy="state.status === 'loading'">
     <div class="section-heading">
       <div><p class="eyebrow">UM HORIZONTE DE ACERVOS</p><h2 id="sources-title">Bibliotecas, em conexão.</h2></div>
-      <span class="section-caption">Integrações em desenvolvimento</span>
+      <button class="text-button" type="button" @click="$emit('retry')">Atualizar catálogo</button>
     </div>
-    <p class="section-description">Conheça as fontes previstas. Cada acervo tem sua própria cobertura e possibilidades de pesquisa.</p>
+    <p class="section-description">Conheça as fontes disponíveis e planejadas. Cada acervo tem sua própria cobertura e possibilidades de pesquisa.</p>
     <p v-if="state.status === 'loading'" class="state-box" role="status">Carregando catálogo de fontes…</p>
     <div v-else-if="state.status === 'error'" class="state-box state-box--error" role="alert">
       <p>{{ state.message }}</p><button class="text-button" type="button" @click="$emit('retry')">Tentar carregar novamente</button>
@@ -43,7 +43,7 @@ const labels: Record<string, string> = {
           <details class="source-details"><summary>Escopo da integração</summary><p lang="en">{{ source.notes }}</p></details>
         </li>
       </ul>
-      <p class="catalog-note">Capacidades sem ✓ são planejadas e ainda precisam de validação. Nenhuma pesquisa é executada nesta etapa.</p>
+      <p class="catalog-note">Capacidades sem ✓ são planejadas e ainda precisam de validação. Somente fontes disponíveis podem ser consultadas.</p>
     </template>
   </section>
 </template>

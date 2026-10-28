@@ -1,11 +1,11 @@
 import { computed, reactive, ref, watch } from 'vue'
 
-export type SearchMode = 'general' | 'title' | 'author' | 'passage'
+export type SearchMode = 'general' | 'title' | 'author' | 'subject' | 'passage'
 type Period = 'any' | 'nineteenth' | 'twentieth' | 'custom'
 
 export function useSearchForm() {
   const form = reactive({
-    query: '', mode: 'general' as SearchMode, language: '',
+    availability: '', query: '', mode: 'general' as SearchMode, language: '',
     from: '' as number | string, to: '' as number | string, sourceIds: [] as string[],
   })
   const period = ref<Period>('any')

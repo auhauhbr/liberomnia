@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import SearchResults from './components/SearchResults.vue'
+import { useSearchSession } from './composables/useSearchSession'
 import SearchPanel from './components/SearchPanel.vue'
 import SourceCatalog from './components/SourceCatalog.vue'
 import StatusBadge from './components/StatusBadge.vue'
 import { useApplication } from './composables/useApplication'
 
+const { session, records, busy, error, cancelling, start, cancel, resume } = useSearchSession()
 const { health, catalog, refresh } = useApplication()
 const healthLabel = computed(() => health.value.status === 'success' ? 'API conectada'
   : health.value.status === 'error' ? 'API indisponível' : 'Conectando à API…')
@@ -28,9 +31,11 @@ const healthLabel = computed(() => health.value.status === 'success' ? 'API cone
         <p class="eyebrow">MUITAS BIBLIOTECAS. UM NOVO PONTO DE PARTIDA.</p>
         <h1 id="hero-title">O conhecimento não cabe<br />em uma só <em>estante.</em></h1>
         <p class="hero-description">Um lugar para descobrir obras, conectar ideias e explorar<br class="desktop-break" /> o patrimônio escrito em diferentes bibliotecas digitais.</p>
-        <SearchPanel :catalog="catalog" />
+        <SearchPanel :catalog="catalog" :busy="busy" :cancelling="cancelling" :can-cancel="!!session && !session.finished" @search="start" @cancel="cancel" />
         <div class="hero-footnote"><span class="small-rule"></span><span>Pesquisa aberta. Descobertas compartilhadas.</span><span class="small-rule"></span></div>
       </section>
+
+      <SearchResults :session="session" :records="records" :busy="busy" :error="error" @resume="resume" />
 
       <SourceCatalog :state="catalog" @retry="refresh" />
 

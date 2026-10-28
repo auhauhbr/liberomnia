@@ -16,9 +16,13 @@ const year = (value: unknown) => value === null || (count(value) && Number(value
 const member = (value: unknown, allowed: Set<string>) => typeof value === 'string' && allowed.has(value)
 const identifier = (value: unknown) => typeof value === 'string' && /^[a-f0-9]{32}$/.test(value)
 
+export function externalUrl(value: unknown): string | null {
+  return typeof value === 'string' && safeUrl(value) ? value : null
+}
+
 function safeUrl(value: unknown): boolean {
   if (value === null) return true
-  if (typeof value !== 'string') return false
+  if (typeof value !== 'string' || value.length > 2048 || /[\x00-\x20\x7f\\]/.test(value)) return false
   try {
     const url = new URL(value)
     return (url.protocol === 'https:' || url.protocol === 'http:') && !url.username && !url.password
@@ -27,6 +31,7 @@ function safeUrl(value: unknown): boolean {
 
 function isProgress(value: unknown): value is SourceProgress {
   return isObject(value) && isNonemptyString(value.sourceId) && member(value.state, sourceStates)
+    && (value.fallbackUsed === undefined || typeof value.fallbackUsed === 'boolean')
     && count(value.recordsRetrieved) && count(value.recordsAccepted) && count(value.recordsRejected)
     && ['searchCompleted', 'localFiltersApplied', 'coverageIncomplete', 'resultLimitReached']
       .every(key => typeof value[key] === 'boolean')
@@ -48,11 +53,15 @@ function isRecord(value: unknown): value is BibliographicRecord {
   return isObject(value) && isNonemptyString(value.sourceId) && isNonemptyString(value.sourceRecordId)
     && isNonemptyString(value.title) && Array.isArray(value.authors) && value.authors.every(author => typeof author === 'string')
     && ['edition', 'publisher', 'language', 'volume', 'workId', 'editionId'].every(key => nullableString(value[key]))
+    && ['subtitle', 'publishedDate', 'accessCountry'].every(key => value[key] === undefined || nullableString(value[key]))
+    && ['publicDomain', 'pdfAvailable', 'epubAvailable'].every(key => value[key] === undefined || value[key] === null || typeof value[key] === 'boolean')
+    && ['previewUrl', 'infoUrl'].every(key => value[key] === undefined || safeUrl(value[key]))
     && year(value.publicationYear) && year(value.originalPublicationYear) && safeUrl(value.originalUrl)
     && Array.isArray(value.identifiers) && value.identifiers.every(id => isObject(id)
       && isNonemptyString(id.scheme) && isNonemptyString(id.value))
     && Array.isArray(value.access) && value.access.every(access => isObject(access)
-      && member(access.availability, availabilityStates) && safeUrl(access.url))
+      && member(access.availability, availabilityStates) && safeUrl(access.url)
+      && [access.viewability, access.format].every(item => item === undefined || nullableString(item)))
     && Array.isArray(value.textualEvidence) && value.textualEvidence.every(evidence => isObject(evidence)
       && member(evidence.kind, evidenceKinds) && nullableString(evidence.text) && nullableString(evidence.location))
 }
@@ -69,7 +78,6 @@ function sessionPath(id: string): string {
   return `/api/search/${encodeURIComponent(id)}`
 }
 
-// Prepared for real adapters; the main interface intentionally does not call these services.
 export async function createSearchSession(request: SearchRequest, signal: AbortSignal): Promise<SearchSessionResponse> {
   return sessionResponse(await requestJson('/api/search', signal, 'POST', request))
 }
