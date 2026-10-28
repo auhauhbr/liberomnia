@@ -18,7 +18,7 @@ const links = computed(() => props.record.access.map(access => ({ ...access,
     <div class="result-tags"><span>{{ record.sourceId === 'google-books' ? 'Google Books' : record.sourceId }}</span>
       <span v-if="local">Filtrado localmente</span><span v-if="fallback">Fallback · correspondência nos metadados</span>
     </div>
-    <h3>{{ record.title }}</h3><p v-if="record.subtitle" class="book-subtitle">{{ record.subtitle }}</p>
+    <h3><a v-if="externalUrl(record.originalUrl)" :href="externalUrl(record.originalUrl)!" target="_blank" rel="noopener noreferrer">{{ record.title }}</a><span v-else>{{ record.title }}</span></h3><p v-if="record.subtitle" class="book-subtitle">{{ record.subtitle }}</p>
     <p>{{ record.authors.length ? record.authors.join(' · ') : 'Autoria não informada' }}</p>
     <dl class="book-metadata">
       <div><dt>Editora</dt><dd>{{ record.publisher ?? 'Não informada' }}</dd></div>

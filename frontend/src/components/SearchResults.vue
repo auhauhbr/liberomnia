@@ -13,11 +13,11 @@ const states: Record<SourceState, string> = {
 </script>
 
 <template>
-  <section v-if="busy || session || error" class="search-results" aria-label="Resultados bibliográficos" :aria-busy="busy">
+  <section v-if="busy || session || error" class="panel search-results" aria-label="Resultados bibliográficos" :aria-busy="busy">
     <div role="status" aria-live="polite">
       <h2>{{ busy ? 'Pesquisando nos acervos…' : session?.state === 'cancelled' ? 'Pesquisa cancelada' : 'Resultados da pesquisa' }}</h2>
       <p v-if="session?.state === 'partial'">Resultados parciais. Uma parte da pesquisa não pôde ser concluída.</p>
-      <p v-for="source in session?.sources" :key="source.sourceId">
+      <p class="result-source-status" v-for="source in session?.sources" :key="source.sourceId">
         {{ source.sourceId === 'google-books' ? 'Google Books' : source.sourceId }}: {{ states[source.state] }}.
         <span v-if="source.fallbackUsed">Foi usada uma pesquisa geral alternativa (fallback), com verificação local do campo. Os resultados podem ser incompletos.</span>
         <span v-if="source.localFiltersApplied">Filtros aplicados localmente aos registros recuperados.</span>
