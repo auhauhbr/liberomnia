@@ -59,7 +59,7 @@ const modes: { value: SearchMode; label: string }[] = [
             <div v-else class="source-options">
               <label v-for="source in catalog.data.sources" :key="source.id">
                 <input v-model="form.sourceIds" type="checkbox" :value="source.id" :disabled="source.implementationStatus !== 'available'" />
-                <span>{{ source.name }} <small>{{ source.implementationStatus === 'available' ? 'Disponível' : 'Planejada' }}</small></span>
+                <span>{{ source.name }} <small>{{ source.implementationStatus === 'available' ? 'Disponível' : source.implementationStatus === 'temporarily_unavailable' ? 'Indisponível' : 'Planejada' }}</small></span>
               </label>
             </div>
           </template>

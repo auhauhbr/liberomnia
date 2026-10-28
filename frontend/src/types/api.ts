@@ -13,7 +13,8 @@ export interface Source {
   id: string
   name: string
   integrationType: 'api' | 'external'
-  implementationStatus: 'planned' | 'available'
+  implementationStatus: 'planned' | 'available' | 'temporarily_unavailable'
+  filterSupport?: { publication: FilterSupport; language: FilterSupport; availability: FilterSupport }
   capabilities: SourceCapability[]
   notes: string
 }
@@ -28,3 +29,73 @@ export type LoadState<T> =
   | { status: 'loading' }
   | { status: 'success'; data: T }
   | { status: 'error'; message: string }
+
+export type SearchField = 'general' | 'title' | 'author' | 'subject' | 'passage'
+export type AccessAvailability = 'viewable' | 'pdf' | 'epub' | 'restricted' | 'metadata_only' | 'unknown'
+export type FilterSupport = 'native' | 'local' | 'unsupported'
+export type SourceState = 'pending' | 'running' | 'completed' | 'empty' | 'rate_limited' | 'blocked'
+  | 'failed' | 'timed_out' | 'cancelled' | 'unsupported' | 'disabled' | 'external_only'
+export type SessionState = 'pending' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled'
+
+export interface SearchFilters {
+  publication?: { from?: number | null; to?: number | null }
+  language?: string | null
+  sourceIds?: string[]
+  availability?: AccessAvailability | null
+  maxResultsPerSource?: number
+}
+export interface SearchRequest extends SearchFilters {
+  text: string
+  field?: SearchField
+}
+export interface ApiErrorBody { code: string; message: string }
+export interface SourceProgress {
+  sourceId: string
+  state: SourceState
+  recordsRetrieved: number
+  recordsAccepted: number
+  recordsRejected: number
+  searchCompleted: boolean
+  localFiltersApplied: boolean
+  coverageIncomplete: boolean
+  resultLimitReached: boolean
+  filters: { id: string; support: FilterSupport }[]
+  error: ApiErrorBody | null
+}
+export interface SearchSession {
+  id: string
+  state: SessionState
+  createdAt: string
+  finished: boolean
+  cancellationRequested: boolean
+  hasErrors: boolean
+  sources: SourceProgress[]
+}
+export interface AccessInfo { availability: AccessAvailability; url: string | null }
+export interface TextualEvidence {
+  kind: 'confirmed_occurrence' | 'source_excerpt' | 'approximate_match' | 'unverified'
+  text: string | null
+  location: string | null
+}
+export interface BibliographicRecord {
+  sourceId: string
+  sourceRecordId: string
+  title: string
+  authors: string[]
+  edition: string | null
+  publisher: string | null
+  publicationYear: number | null
+  originalPublicationYear: number | null
+  language: string | null
+  volume: string | null
+  workId: string | null
+  editionId: string | null
+  identifiers: { scheme: string; value: string }[]
+  originalUrl: string | null
+  access: AccessInfo[]
+  textualEvidence: TextualEvidence[]
+}
+export interface SearchSessionResponse { apiVersion: '1'; session: SearchSession }
+export interface SearchResultsResponse extends SearchSessionResponse {
+  results: { record: BibliographicRecord; original: BibliographicRecord }[]
+}

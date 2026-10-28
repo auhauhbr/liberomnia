@@ -28,7 +28,7 @@ const labels: Record<string, string> = {
         <li v-for="(source, index) in state.data.sources" :key="source.id" class="source-card">
           <div class="source-topline"><span class="source-number" aria-hidden="true">{{ String(index + 1).padStart(2, '0') }}</span>
             <StatusBadge :tone="source.implementationStatus === 'available' ? 'success' : 'neutral'">
-              {{ source.implementationStatus === 'available' ? 'Disponível' : 'Planejada' }}
+              {{ source.implementationStatus === 'available' ? 'Disponível' : source.implementationStatus === 'temporarily_unavailable' ? 'Indisponível' : 'Planejada' }}
             </StatusBadge>
           </div>
           <h3>{{ source.name }}</h3>
