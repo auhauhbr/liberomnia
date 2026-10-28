@@ -1,0 +1,26 @@
+# CMake
+build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+compile_commands.json
+
+# Node.js / Vue
+node_modules/
+dist/
+coverage/
+
+# Environment and databases
+.env
+.env.local
+.env.*.local
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+
+# Temporary files
+*.log
+*.tmp
+.DS_Store
+
