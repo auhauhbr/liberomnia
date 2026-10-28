@@ -18,6 +18,8 @@ struct TextualEvidence {
 struct AccessInfo {
     AccessAvailability availability{AccessAvailability::unknown};
     std::optional<std::string> url;
+    std::optional<std::string> viewability;
+    std::optional<std::string> format;
 };
 struct BibliographicIdentifier {
     std::string scheme;
@@ -52,6 +54,14 @@ struct BibliographicRecord {
     std::string source_id;
     std::string source_record_id;
     std::string title;
+    std::optional<std::string> subtitle;
+    std::optional<std::string> published_date;
+    std::optional<std::string> access_country;
+    std::optional<bool> public_domain;
+    std::optional<bool> pdf_available;
+    std::optional<bool> epub_available;
+    std::optional<std::string> preview_url;
+    std::optional<std::string> info_url;
     std::vector<std::string> authors;
     std::optional<std::string> edition;
     std::optional<std::string> publisher;

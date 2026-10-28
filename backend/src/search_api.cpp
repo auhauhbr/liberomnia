@@ -36,6 +36,11 @@ Json::Value record_json(const domain::BibliographicRecord& record) {
     const auto text = [&](const char* key, const std::optional<std::string>& value) {
         result[key] = value ? Json::Value(*value) : Json::Value();
     };
+    text("subtitle", record.subtitle); text("publishedDate", record.published_date);
+    text("accessCountry", record.access_country); text("previewUrl", record.preview_url); text("infoUrl", record.info_url);
+    result["publicDomain"] = record.public_domain ? Json::Value(*record.public_domain) : Json::Value();
+    result["pdfAvailable"] = record.pdf_available ? Json::Value(*record.pdf_available) : Json::Value();
+    result["epubAvailable"] = record.epub_available ? Json::Value(*record.epub_available) : Json::Value();
     text("edition", record.edition); text("publisher", record.publisher); text("language", record.language);
     text("volume", record.volume); text("originalUrl", record.original_url);
     text("workId", record.work_id); text("editionId", record.edition_id);
@@ -51,6 +56,8 @@ Json::Value record_json(const domain::BibliographicRecord& record) {
         Json::Value item;
         item["availability"] = std::string(access_names.at(static_cast<std::size_t>(access.availability)));
         item["url"] = access.url ? Json::Value(*access.url) : Json::Value();
+        item["viewability"] = access.viewability ? Json::Value(*access.viewability) : Json::Value();
+        item["format"] = access.format ? Json::Value(*access.format) : Json::Value();
         result["access"].append(item);
     }
     result["textualEvidence"] = Json::Value(Json::arrayValue);
@@ -86,6 +93,7 @@ Json::Value session_json(const search::SessionSnapshot& session) {
         item["recordsRejected"] = Json::UInt64(source.records_rejected);
         item["searchCompleted"] = source.search_completed;
         item["localFiltersApplied"] = source.local_filters_applied;
+        item["fallbackUsed"] = source.fallback_used;
         item["coverageIncomplete"] = source.coverage_incomplete;
         item["resultLimitReached"] = source.result_limit_reached;
         item["error"] = source.error ? error_json(*source.error) : Json::Value();

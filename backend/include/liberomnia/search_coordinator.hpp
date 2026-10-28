@@ -35,6 +35,7 @@ struct SourceProgress {
     std::size_t records_rejected{};
     bool search_completed{false};
     bool local_filters_applied{false};
+    bool fallback_used{false};
     bool coverage_incomplete{true};
     bool result_limit_reached{false};
     std::vector<AppliedFilter> filters;

@@ -41,7 +41,9 @@ std::optional<NormalizedRecord> normalize_record(domain::BibliographicRecord rec
             std::none_of(text.begin(), text.end(), [](unsigned char c) { return c == 0 || (c < 32 && !std::isspace(c)); });
     };
     const auto optional_bounded = [&bounded](const auto& text) { return !text || bounded(*text); };
-    if (!bounded(record.source_id) || !bounded(record.source_record_id) || !bounded(record.title) ||
+    if (!optional_bounded(record.subtitle) || !optional_bounded(record.published_date) ||
+        !optional_bounded(record.access_country) || !valid_url(record.preview_url) || !valid_url(record.info_url) ||
+        !optional_bounded(record.preview_url) || !optional_bounded(record.info_url) || !bounded(record.source_id) || !bounded(record.source_record_id) || !bounded(record.title) ||
         !std::all_of(record.authors.begin(), record.authors.end(), bounded) ||
         !optional_bounded(record.edition) || !optional_bounded(record.publisher) ||
         !optional_bounded(record.language) || !optional_bounded(record.volume) ||
@@ -49,7 +51,7 @@ std::optional<NormalizedRecord> normalize_record(domain::BibliographicRecord rec
         !optional_bounded(record.work_id) || !optional_bounded(record.edition_id)) return std::nullopt;
     for (const auto& id : record.identifiers) if (!bounded(id.scheme) || !bounded(id.value)) return std::nullopt;
     for (const auto& access : record.access) {
-        if (!optional_bounded(access.url) || !valid_url(access.url) ||
+        if (!optional_bounded(access.viewability) || !optional_bounded(access.format) || !optional_bounded(access.url) || !valid_url(access.url) ||
             access.availability < domain::AccessAvailability::viewable || access.availability > domain::AccessAvailability::unknown)
             return std::nullopt;
     }

@@ -20,12 +20,15 @@ struct ProviderCapabilities {
     FilterSupport availability{FilterSupport::unsupported};
 };
 
-enum class ProviderError { failed, rate_limited, blocked };
+enum class ProviderError { failed, rate_limited, blocked, network, authentication, invalid_response,
+                           timed_out, cancelled, invalid_request };
 struct ProviderResult {
     std::vector<domain::BibliographicRecord> records;
     std::optional<ProviderError> error;
     // True only when the adapter has exhausted the matching upstream collection.
     bool exhaustive{false};
+    bool fallback_used{false};
+    bool result_limit_reached{false};
 };
 
 // search() starts asynchronous I/O and returns promptly. Stop callbacks must also
@@ -39,6 +42,7 @@ public:
     virtual ~SearchProvider() = default;
     [[nodiscard]] virtual const Source& source() const noexcept = 0;
     [[nodiscard]] virtual ProviderCapabilities capabilities() const = 0;
+    [[nodiscard]] virtual ImplementationStatus implementation_status() const noexcept { return source().implementation_status; }
     virtual void search(domain::SearchRequest request, std::stop_token stop, Completion completion) = 0;
 };
 

@@ -162,6 +162,8 @@ struct SearchCoordinator::State {
         if (!source || source->state != SourceState::running) return;
         auto& result = *task->result;
         source->records_retrieved = result.records.size();
+        source->fallback_used = result.fallback_used;
+        source->local_filters_applied = source->local_filters_applied || result.fallback_used;
         source->coverage_incomplete = !result.exhaustive || result.error.has_value() || source->local_filters_applied;
         std::map<std::string, NormalizedRecord> unique;
         for (auto& record : result.records) {
@@ -173,7 +175,7 @@ struct SearchCoordinator::State {
             unique.try_emplace(id, std::move(*normalized));
         }
         auto& records = sessions.at(task->session_id).records[task->source_id];
-        source->result_limit_reached = unique.size() > task->quota;
+        source->result_limit_reached = result.result_limit_reached || unique.size() > task->quota;
         for (auto& [id, record] : unique) {
             (void)id;
             if (records.size() == task->quota) break;
@@ -189,6 +191,24 @@ struct SearchCoordinator::State {
                 case ProviderError::blocked:
                     source->state = SourceState::blocked;
                     source->error = error("provider_blocked", "Provider denied access.", 403); break;
+                case ProviderError::network:
+                    source->state = SourceState::failed;
+                    source->error = error("provider_network_error", "Unable to reach provider.", 502); break;
+                case ProviderError::authentication:
+                    source->state = SourceState::blocked;
+                    source->error = error("provider_authentication", "Provider credentials were rejected.", 403); break;
+                case ProviderError::invalid_response:
+                    source->state = SourceState::failed;
+                    source->error = error("invalid_provider_response", "Provider returned an invalid response.", 502); break;
+                case ProviderError::invalid_request:
+                    source->state = SourceState::failed;
+                    source->error = error("provider_invalid_request", "Provider does not accept this language or query.", 422); break;
+                case ProviderError::timed_out:
+                    source->state = SourceState::timed_out;
+                    source->error = error("provider_timed_out", "Provider deadline exceeded.", 504); break;
+                case ProviderError::cancelled:
+                    source->state = SourceState::cancelled;
+                    source->error = error("provider_cancelled", "Provider search cancelled.", 499); break;
                 case ProviderError::failed:
                     source->state = SourceState::failed;
                     source->error = error("provider_failed", "Provider request failed.", 502); break;
@@ -304,7 +324,8 @@ SessionResult SearchCoordinator::submit(domain::SearchRequest request) {
         SourceProgress source;
         source.source_id = id;
         if (entry.source.integration_type == IntegrationType::external) source.state = SourceState::external_only;
-        else if (!entry.adapter || entry.source.implementation_status != ImplementationStatus::available) source.state = SourceState::disabled;
+        else if (!entry.adapter || entry.source.implementation_status != ImplementationStatus::available ||
+                 entry.adapter->implementation_status() != ImplementationStatus::available) source.state = SourceState::disabled;
         else {
             const auto& caps = entry.capabilities;
             bool supported = caps.fields.contains(request.field);
