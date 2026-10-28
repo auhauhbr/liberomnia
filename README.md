@@ -1,180 +1,147 @@
 # LiberOmnia
 
-LiberOmnia is an open source platform being built for federated bibliographic
-research: one place to discover books, authors, subjects, and text passages across
-digital libraries and archives, while preserving the identity and metadata of
-individual editions.
+LiberOmnia is an open source platform for federated bibliographic research,
+preserving the identity and metadata of individual source records and editions.
 
-**Current stage: federated search core.** The backend now coordinates asynchronous
-providers and bounded, temporary search sessions. There are **no operational external
-library adapters**. Production search creation returns HTTP 503 instead of creating
-a misleading session. The frontend retains its layout and disabled search form;
-its prepared session services are not called by the main interface.
+**Current stage: Google Books integration.** Google Books is the first real
+bibliographic adapter. The Vue interface creates search sessions, displays their
+progress and results, and supports cancellation. No demonstration records are
+served by the application. Internet Archive, Open Library, Gallica, and the
+external-only Anna's Archive integration remain planned and cannot be selected.
 
-## Planned capabilities
+## Search behavior
 
-- General, title, author, subject, exact-phrase, and passage searches.
-- Language and publication-period filters, subject to each provider's capabilities.
-- Federated results with edition provenance, metadata normalization, and links to
-  consultation or downloads when available and permitted.
-- Google Books, Internet Archive, Open Library, and Gallica adapters.
-- Anna's Archive as external search only; no protected-page automation or scraping.
+- General searches send the query through `q`. Title, author and subject searches
+  use `intitle:`, `inauthor:` and `subject:` with quoted terms.
+- Passage searches quote the phrase. Google Books does not guarantee full-text
+  access, a verified occurrence, or a page location. `searchInfo.textSnippet` is
+  classified as `source_excerpt`, displayed as untrusted plain text, and never
+  promoted to a confirmed occurrence. HTML markup in snippets remains visible text.
+- Languages use native `langRestrict`: `pt`, `en`, `fr`, `la`, `es`, `it`, `de`, or
+  no restriction. Other codes, regional tags and alternate spellings are rejected
+  by this adapter with `provider_invalid_request`; source language metadata is
+  preserved rather than rewritten.
+- Publication intervals are inclusive and local. Any valid years in 1–9999 are
+  accepted, including 1501–1600, 1701–1800, 1801–1900 and 1901–2000. The UI includes
+  a 19th-century preset and custom bounds. Only the **edition's** `publishedDate`
+  is used. Strict `YYYY`, `YYYY-MM`, and `YYYY-MM-DD` parsing validates real calendar
+  dates; missing, ambiguous and invalid dates never acquire an estimated year.
+- Availability is filtered locally from normalized access information. Unknown
+  fields cannot satisfy a specific date or access filter.
 
-The initial interface includes search modes, an advanced panel, language and
-publication filters, historical presets (19th century: **1801–1900**), and source
-selection. Planned sources cannot be selected. The form does not send search
-requests, even when the API is healthy. Full-text coverage and filter support
-must be validated separately for every provider.
+Local filters apply to a bounded set of retrieved candidates, not the complete
+Google Books catalog. The coordinator preserves the original request and applies
+these filters after retrieval. The adapter receives the native filters only.
+The UI asks for up to 40 candidates; the HTTP API accepts 1–100 per source. Narrow
+historical filters may yield no results even when matching editions exist elsewhere
+in the catalog. No century-wide search or exhaustive coverage is claimed.
 
-## Technology and requirements
+### Field-search fallback
 
-| Component | Requirement / tested version |
-| --- | --- |
-| Platform | Linux |
-| C++ | C++20 compiler; tested with GCC 16.2.1 |
-| Build | CMake 3.24+; tested with 4.4.5 |
-| HTTP | Drogon 1.9.x; tested with stable 1.9.14 and its matching Trantor revision |
-| Local persistence | SQLite3 development library; tested with 3.54.0 |
-| C++ tests | GoogleTest with CMake config; tested with 1.18.0 |
-| HTTP integration tests | Python 3.10+ standard library; tested with 3.14.8 |
-| Node.js | 22.12+, 24.x, or 26+ (matching Vitest's engine range); tested with 26.12.1 |
-| Frontend | Vue 3.5.44, TypeScript 5.9.3, Vite 8.3.5 |
-| Frontend tests | Vitest 5.0.5, Vue Test Utils 2.5.1, jsdom 30.1.3 |
+An October 2026 [Google Developer forum report](https://discuss.google.dev/t/google-books-api-intitle-inauthor-queries-return-zero-results-while-plain-queries-succeed-october-2026/401929)
+describes zero results for field queries while general queries succeed; the linked
+[issue tracker](https://issuetracker.google.com/issues/569300353) requires access.
+This is a reported regression, not proof of a global outage.
 
-Frontend dependency versions are recorded in `frontend/package-lock.json`.
-TypeScript is pinned to 5.9.3 for compatibility with the installed `vue-tsc`
-version. No external fonts, image services, authentication, or additional backend
-services are required.
+When the initial title, author or subject query succeeds with `totalItems: 0`, the
+adapter may issue **one** alternative general request within its total call budget.
+It retains only candidates whose title, individual author, or category contains all
+query tokens. Matching uses token boundaries and ASCII case folding; non-ASCII
+bytes are preserved, so accented case variants may be missed. Missing metadata
+cannot verify a match. No fallback follows an HTTP error, a nonempty native page,
+or an exhausted call budget. The alternative is never paginated.
 
-## Structure and architecture
+`fallbackUsed`, `localFiltersApplied` and `coverageIncomplete` expose this behavior.
+Fallback matches are metadata matches, not exact phrase matches or evidence of
+exhaustive native field search. The interface marks these results explicitly.
 
-```text
-.
-├── CMakeLists.txt
-├── .env.example
-├── LICENSE
-├── backend/
-│   ├── CMakeLists.txt
-│   ├── include/liberomnia/
-│   │   ├── api.hpp
-│   │   ├── config.hpp
-│   │   ├── models.hpp
-│   │   ├── search_provider.hpp
-│   │   ├── provider_registry.hpp
-│   │   ├── search_coordinator.hpp
-│   │   ├── normalization.hpp
-│   │   ├── search_api.hpp
-│   │   └── source_catalog.hpp
-│   ├── src/
-│   └── tests/
-└── frontend/
-    ├── public/
-    ├── src/
-    │   ├── components/
-    │   ├── composables/
-    │   ├── services/
-    │   ├── types/
-    │   ├── App.vue
-    │   ├── main.ts
-    │   └── style.css
-    └── tests/
-```
+### Reading and downloads
 
-The backend uses three small boundaries:
+`ALL_PAGES` and `PARTIAL` are distinct viewing states. Full viewing or public-domain
+status alone never implies a PDF or EPUB download. A download requires an explicit,
+validated `downloadLink` and `isAvailable: true`. ACS-token access is labeled
+restricted; tokens are not exposed as public downloads. A format reported as
+available without a public link is not offered as a download.
 
-- `liberomnia_core`: environment configuration, domain models, provider registry,
-  structural normalization, and the session coordinator, with no HTTP dependency. Optional fields distinguish
-  missing metadata from invented defaults. Publication years currently use
-  positive calendar years from 1 through 9999, with inclusive ranges.
-- `liberomnia_http`: Drogon routes, JSON serialization, and exact-origin CORS.
-  `liberomnia_server` composes the application and reports startup errors.
-- `liberomnia_persistence`: an interface CMake target exposing `SQLite::SQLite3`
-  for future repositories. There are no database connections, tables, or migrations.
+Official canonical, information, preview and reader links are used when supplied;
+URLs are never synthesized. Both backend and frontend reject unsafe links. External
+links use `noopener noreferrer`. Availability, public-domain assertions and viewing
+rights apply to the country reported by the source and may differ elsewhere.
+This stage does not download, store or redistribute books.
 
-`SearchRequest` extends `SearchFilters`; `SearchQuery` remains an alias for source
-compatibility with the original field access. Search modes are `general`, `title`,
-`author`, `subject`, and `passage`. Source record identity, optional work/edition IDs,
-edition publication year, and original work year remain distinct. Access metadata
-and textual evidence never imply a verified download or confirmed textual occurrence
-unless explicitly reported by an adapter. Missing metadata stays absent/null.
+## Architecture and limits
 
-`ProviderRegistry` receives descriptors and adapters explicitly and becomes immutable.
-An API source cannot be registered as available without an adapter. Planned,
-temporarily unavailable, and external-only sources are not dispatched. Production
-registers only the five planned descriptors. Test providers and their control routes
-exist exclusively under `backend/tests/` and are not linked into the production server.
+`GoogleBooksProvider` implements the existing asynchronous `SearchProvider`
+contract and is explicitly registered in `ProviderRegistry`. The federated
+`SearchCoordinator` has no Google Books name checks or query logic. It retains
+normalization, session budgets, cancellation, local filtering and provenance.
+Generic additions carry typed errors, dynamic provider status and fallback/limit
+information through the session API.
 
-`SearchCoordinator` uses one owned `std::jthread` for dispatch, normalization, and
-maintenance. Provider starts are short asynchronous operations, so multiple upstream
-requests can run concurrently without one thread per request. The HTTP handlers never
-wait for provider completion. A mutex protects session state and snapshots; provider
-code and stop callbacks run outside it. Completion callbacks enqueue at most one result;
-weak references and terminal states prevent late/duplicate callbacks from reviving sessions.
+`BooksHttpClient` is replaceable in tests. Its production implementation uses
+libcurl multi socket callbacks on the Drogon/Trantor application event loop.
+Sockets and timer deadlines drive I/O; there are no blocking network calls,
+detached threads, sleep loops or periodic network polling. HTTPS certificates and
+hostnames are verified, redirects are not followed, and asynchronous DNS support
+is required. A streaming body callback enforces the response-size limit before
+JSON parsing. Headers are capped at 32 KiB; JSON depth and metadata sizes are bounded.
 
-The global concurrency limit covers all sessions. The pending queue is bounded and
-uses FIFO dispatch. A provider's deadline begins when dispatched, not when queued.
-Timeout, cancellation, and expiry request cooperative stop through `std::stop_token`.
-A timeout/cancelled operation keeps its execution slot until the adapter acknowledges
-completion: an adapter that ignores stop cannot create an unlimited number of abandoned
-operations. Such an adapter can exhaust slots; subsequent requests are bounded/rejected.
-Adapter `search()` methods, stop callbacks, and destruction must return promptly and
-must not perform blocking I/O or wait for their callbacks. C++ cannot forcibly terminate
-a misbehaving adapter safely. Exceptions are converted to fixed public error codes;
-provider exception messages are not returned to clients.
+Each search owns its callback state and stop registration. Completion happens once;
+duplicate and late transport callbacks cannot add results after completion.
+Cancellation acknowledges promptly and schedules transport teardown on its loop.
+One page is in flight per search. Defaults and hard ceilings are:
 
-Adapters return one bounded `ProviderResult`, optionally containing partial records
-and a typed `failed`, `blocked`, or `rate_limited` error. Results become visible as each
-provider finishes; streaming batches from an individual provider are not implemented.
-The provider's `exhaustive` flag defaults to false. `searchCompleted` means that the
-request completed successfully, **not** that the entire collection was searched.
+| Limit | Default | Ceiling |
+| --- | --- | --- |
+| Results per upstream page | 40 | 40 |
+| Native pages per search | 3 | 10 |
+| Calls per search, including fallback | 4 | 11 |
+| Search deadline in adapter | 6 seconds | 30 seconds |
+| Response body per call | 1 MiB | 4 MiB |
+| Concurrent Google calls across searches | 4 | Fixed process-wide default |
+| Google calls in a rolling minute | 30 | Fixed process-wide default |
+| UI candidates per source | 40 | API maximum 100 |
 
-Filter support is explicit: `native` filters are sent to the adapter, `local` filters
-are removed from the upstream request and applied to returned records, and `unsupported`
-filters exclude that provider. Unknown year/language/access values cannot satisfy a
-concrete local filter. Local filtering always sets `coverageIncomplete=true`, including
-when it yields zero records. Upstream truncation, errors, invalid records, and result
-budgets also mark coverage incomplete; `empty` is never substituted for a timeout,
-access block, or rate limit.
+The result cap can stop pagination before the page budget. The single fallback may
+follow a one-page native budget but always consumes the call budget. No automatic
+retry is performed. Shared rate limiting rejects excess work immediately, without
+sleeping. `Retry-After` seconds and HTTP dates establish a shared cooldown; a 429
+without the header uses 60 seconds. HTTP 403 quota reasons are also classified as
+rate limits. These limits apply within one process, not across multiple replicas.
 
-Normalization collapses basic whitespace in descriptive text, clears blank optional
-fields, validates records, retains the original structured record, and deduplicates by
-`(sourceId, sourceRecordId)` only. The first occurrence of a duplicate ID in a provider's
-response wins. Results are sorted by source ID and original record ID. Sources receive
-deterministic shares of the session record budget before dispatch, so completion order
-cannot change which source consumes it; unused shares are not reallocated. Work/edition
-matching, fuzzy deduplication, raw upstream payload retention, OCR, and pagination are
-not implemented.
+The adapter distinguishes network failure, authentication, access blocking, quota
+limits, invalid responses, server errors, timeout, cancellation and legitimate
+empty responses. Records from successful pages survive later failures. Missing
+required identity/title fields are rejected; invalid optional dates remain without
+a year. Deduplication uses only `(sourceId, sourceRecordId)`. Equal titles never
+merge editions, and absent work/edition IDs are not invented. `totalItems` is an
+estimate; Google Books results always retain `coverageIncomplete: true`.
 
-Sessions are **memory-only and lost on backend restart**. Expiry is measured from
-creation with a monotonic clock; cleanup runs periodically and opportunistically during
-requests. Completed sessions still consume capacity until expiry. Expired IDs are
-retained as bounded tombstones for at most one additional TTL (at most `max_sessions`
-IDs), returning 410 while remembered and 404 after eviction. No SQLite tables or
-persistent query history are created. Session IDs use 128 bits of Linux `getrandom`
-entropy and act as bearer identifiers; the default listener remains loopback. There is
-no authentication or ownership isolation in this stage. Query contents are not logged.
+Sessions live only in memory, expire after 15 minutes by default, and disappear on
+restart. No reusable upstream response cache or persistent search history is
+created. Responses to the browser use `Cache-Control: no-store`. Search text, API
+keys, upstream request URLs and upstream error bodies are not logged. A session ID
+is an unguessable bearer identifier; this stage has no authentication or ownership
+isolation, and the default listener is loopback.
 
-The frontend keeps HTTP requests and runtime response validation in `services/`,
-loading/error/retry and form state in `composables/`, and presentation in Vue
-Composition API components. Requests have an eight-second timeout, are canceled
-on unmount/retry, and stale responses cannot overwrite newer state. API text is
-rendered through Vue interpolation. There is no raw HTML injection.
+## Technology and dependencies
 
-## Install dependencies
+Linux, C++20, CMake 3.24+, Drogon 1.9.x, libcurl 7.85+ with TLS and asynchronous DNS,
+SQLite development headers, GoogleTest, Python 3.10+, and Node.js 22.12+/24.x/26+
+are required. Tested dependencies include Drogon 1.9.14, libcurl 8.23.0, Vue 3.5.44,
+TypeScript 5.9.3 and Vite 8.3.5. Frontend dependencies are locked in
+`frontend/package-lock.json`. SQLite is reserved for future persistence; no database
+is opened by this stage.
 
-Install the compiler, CMake, Python, Node.js, and development packages using your
-distribution's package manager. For example, on Debian/Ubuntu, an administrator
-can install the native build prerequisites with:
+On Debian/Ubuntu, an administrator can install prerequisites manually:
 
 ```sh
 sudo apt-get install build-essential cmake pkg-config curl python3 \
-  libjsoncpp-dev libssl-dev zlib1g-dev uuid-dev libsqlite3-dev libgtest-dev
+  libjsoncpp-dev libssl-dev zlib1g-dev uuid-dev libsqlite3-dev libgtest-dev \
+  libcurl4-openssl-dev
 ```
 
-This command is a manual prerequisite, not part of the build. Use a Node.js
-version satisfying the table above. Install Drogon from your distribution if a
-compatible CMake package is available, or build its pinned stable sources into a
-local prefix without administrator permissions:
+Use a compatible distribution Drogon package or build pinned sources locally:
 
 ```sh
 deps_dir="$(mktemp -d /tmp/liberomnia-deps.XXXXXX)"
@@ -192,40 +159,18 @@ cmake -S "$deps_dir/drogon-1.9.14" -B "$deps_dir/build" \
   -DBUILD_ORM=OFF -DBUILD_BROTLI=OFF -DBUILD_YAML_CONFIG=OFF
 cmake --build "$deps_dir/build" --parallel 4
 cmake --install "$deps_dir/build"
-```
-
-Keep this prefix available while building. `/tmp` may be cleaned on reboot; choose
-a persistent user-owned directory for a long-lived installation. See the
-[Drogon releases](https://github.com/drogonframework/drogon/releases/tag/v1.9.14)
-and [Vite requirements](https://vite.dev/guide/) for upstream information.
-
-Install the locked frontend dependencies from the repository root:
-
-```sh
 npm --prefix frontend ci
 ```
 
-If your default npm cache is read-only, append `--cache /tmp/liberomnia-npm-cache`.
-Dependency installation requires network access. After installation, builds and
-tests do not contact the planned library providers.
+Keep the prefix available while building; `/tmp` may be cleaned on reboot. A
+persistent user-owned directory can be used instead. If npm's default cache is
+unwritable, use `npm --prefix frontend ci --cache /tmp/liberomnia-npm-cache`.
 
 ## Build and run
 
-From the repository root, with Drogon installed in a standard prefix:
-
 ```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH="$deps_prefix"
 cmake --build build --parallel 4
-```
-
-For the local dependency installation above, append
-`-DCMAKE_PREFIX_PATH="$deps_prefix"` to the configuration command. The backend
-can also be configured directly with `cmake -S backend -B build/backend-only`.
-Use `-DBUILD_TESTING=OFF` for a build without GoogleTest or Python requirements.
-
-Configure and start the backend in one terminal:
-
-```sh
 cp .env.example .env
 set -a
 . ./.env
@@ -233,177 +178,97 @@ set +a
 ./build/backend/liberomnia_server
 ```
 
-The executable reads the process environment; it does **not** parse `.env` files.
-The shell commands above export the example settings. Stop the server with Ctrl+C.
+Omit `CMAKE_PREFIX_PATH` for a system Drogon installation. The backend also supports
+`cmake -S backend -B build/backend-only` and `-DBUILD_TESTING=OFF`.
+The executable reads environment variables, not `.env` files directly.
 
-| Variable | Default | Behavior |
+In another terminal run `npm --prefix frontend run dev` and open
+**http://localhost:5173**. Vite proxies `/api` to **http://127.0.0.1:8080**.
+`npm --prefix frontend run build` creates a production bundle; deploy it behind a
+web server with an `/api` reverse proxy. The API does not serve frontend files.
+
+### Configuration and availability
+
+`GOOGLE_BOOKS_API_KEY` is optional and backend-only. Supply your own credential in
+the process environment or an ignored local `.env` file. Never put a key in frontend
+code, a `VITE_` variable, source control, command-line URLs or shared logs. No example
+credential is provided.
+
+At startup, the enabled provider performs one bounded general readiness query for
+*The Imitation of Christ*, requesting one result. Until a valid response arrives,
+`/api/sources` reports it as `temporarily_unavailable` and `searchAvailable: false`.
+Public calls are enabled only after this check succeeds; supplying a key does not
+bypass it. A failed startup check keeps the provider unavailable until restart.
+Correct credentials/quota/network configuration before restarting. The UI's
+**Atualizar catálogo** button reloads status without creating upstream searches.
+During a shared quota cooldown, the catalog also reports temporary unavailability.
+Authentication or access-block failures disable the adapter until restart.
+Health reports application health, not an upstream guarantee.
+
+| Variable | Default | Purpose |
 | --- | --- | --- |
-| `LIBEROMNIA_ADDRESS` | `127.0.0.1` | Numeric IPv4/IPv6 listener address; loopback by default |
-| `LIBEROMNIA_PORT` | `8080` | Integer in 1–65535; invalid values fail startup |
-| `LIBEROMNIA_DATA_DIR` | `./data` | Local runtime root, relative to the process working directory |
-| `LIBEROMNIA_FRONTEND_ORIGIN` | `http://localhost:5173` | Exact HTTP(S) origin without path/trailing slash; empty disables CORS |
+| `LIBEROMNIA_ADDRESS` | `127.0.0.1` | Numeric listener address |
+| `LIBEROMNIA_PORT` | `8080` | Listener port |
+| `LIBEROMNIA_DATA_DIR` | `./data` | Drogon runtime directory root |
+| `LIBEROMNIA_FRONTEND_ORIGIN` | `http://localhost:5173` | Exact CORS origin; empty disables CORS |
+| `LIBEROMNIA_SEARCH_CONCURRENCY` | `4` | Concurrent provider executions |
+| `LIBEROMNIA_SEARCH_MAX_PENDING` | `64` | Queued provider work |
+| `LIBEROMNIA_SEARCH_MAX_SESSIONS` | `32` | Active and retained sessions |
+| `LIBEROMNIA_SEARCH_MAX_RECORDS` | `200` | Records per session |
+| `LIBEROMNIA_SEARCH_TIMEOUT_MS` | `8000` | Coordinator deadline |
+| `LIBEROMNIA_SEARCH_SESSION_TTL_MS` | `900000` | Session retention |
+| `GOOGLE_BOOKS_ENABLED` | `true` | `false` disables the adapter and startup network check |
+| `GOOGLE_BOOKS_API_KEY` | Empty | Optional backend credential |
+| `GOOGLE_BOOKS_PAGE_SIZE` | `40` | Upstream page size |
+| `GOOGLE_BOOKS_MAX_PAGES` | `3` | Native page budget |
+| `GOOGLE_BOOKS_CALL_BUDGET` | `4` | Total calls, including fallback |
+| `GOOGLE_BOOKS_TIMEOUT_MS` | `6000` | Adapter deadline across all pages |
+| `GOOGLE_BOOKS_MAX_RESPONSE_BYTES` | `1048576` | Streaming body limit |
 
-Drogon creates runtime directories under `LIBEROMNIA_DATA_DIR/runtime`. No upload
-route is exposed. `Config::database_path()` reserves
-`LIBEROMNIA_DATA_DIR/liberomnia.sqlite3` for future persistence, without creating it.
-There is no wildcard CORS or credentialed access. Preflight is checked before
-routing and allows only the configured origin, the route's GET/POST method, and
-`Content-Type` when requested. CORS is a browser policy, not authentication.
-Static files are not served by the API.
+Invalid configuration fails startup without printing credentials. Coordinator
+deadlines may end searches earlier than adapter limits. Public Google Books access
+is subject to project, regional and quota restrictions; an empty key is not a
+promise of quota-free access.
 
-Start the frontend in another terminal, from the repository root:
+## HTTP sessions and frontend
 
-```sh
-npm --prefix frontend run dev
-```
-
-Open **http://localhost:5173**. Vite proxies `/api` to the backend. It reads the
-root `.env` (and exported variables) for `LIBEROMNIA_ADDRESS` and
-`LIBEROMNIA_PORT`; restart it after changing those settings. Backend binding
-addresses `0.0.0.0` and `::` map to their loopback equivalents in the proxy.
-Frontend HTTP calls use relative URLs and require no exposed configuration secrets.
-
-Search resource settings (all positive integers):
-
-| Variable | Default | Maximum |
-| --- | --- | --- |
-| `LIBEROMNIA_SEARCH_CONCURRENCY` | 4 | 32 |
-| `LIBEROMNIA_SEARCH_MAX_PENDING` | 64 | 1024 |
-| `LIBEROMNIA_SEARCH_MAX_SESSIONS` | 32 | 256 |
-| `LIBEROMNIA_SEARCH_MAX_RECORDS` | 200 | 1000 |
-| `LIBEROMNIA_SEARCH_TIMEOUT_MS` | 8000 | 300000 |
-| `LIBEROMNIA_SEARCH_SESSION_TTL_MS` | 900000 | 86400000 |
-
-Invalid values fail startup. Text is limited to 4096 UTF-8 bytes, HTTP request bodies
-to 16 KiB, source selection to 16 unique IDs, and requested results to 1–100 per
-source. Normalized records accept at most 32 KiB of string data each (8 KiB per
-field, with bounded nested arrays), plus their original structured copy. Session,
-record, queue, and concurrency limits jointly bound retained data; choose limits
-appropriate for available memory. Adapters must also bound upstream response bytes
-before decoding them. Oversized provider record counts are treated as failures.
-
-Build and preview production assets:
-
-```sh
-npm --prefix frontend run build
-npm --prefix frontend run preview
-```
-
-The preview is available at **http://localhost:4173**, with the same API proxy.
-For deployment, serve `frontend/dist` and reverse-proxy `/api` to the backend on
-the same origin. Vite's development/preview servers are local tools, not production
-servers. No deployment is included in this stage.
-
-## HTTP API
-
-`GET /api/health` returns HTTP 200:
-
-```json
-{"status":"ok","application":"LiberOmnia","apiVersion":"1"}
-```
-
-`GET /api/sources` returns a versioned envelope with `searchAvailable: false` and
-five source descriptors. An illustrative entry from the real catalog is:
-
-```json
-{
-  "id": "annas-archive",
-  "name": "Anna's Archive",
-  "integrationType": "external",
-  "implementationStatus": "planned",
-  "capabilities": [{"id": "externalSearch", "status": "planned"}],
-  "notes": "External search only is planned. No scraping or automation of protected pages."
-}
-```
-
-The envelope has `apiVersion`, `searchAvailable`, and `sources`. Integration types
-are `api` or `external`; implementation statuses are `planned`, `available`, or
-`temporarily_unavailable`; capability statuses are `planned` or `confirmed`.
-Capability IDs are extensible;
-clients preserve unknown IDs and may ignore additive JSON fields. All five current
-sources and all listed capabilities are **planned**, not validated integrations.
-Health indicates that this application responds, not that a provider is reachable.
-The catalog also exposes `filterSupport` for publication, language, and availability.
-Planned sources advertise `unsupported` operational filters until an adapter exists.
-
-### Search sessions
-
-| Route | Success contract |
+| Endpoint | Successful response |
 | --- | --- |
-| `POST /api/search` | 202, `{apiVersion, session}` and a `Location` header |
-| `GET /api/search/{id}` | 200, `{apiVersion, session}` without bibliographic records |
-| `GET /api/search/{id}/results` | 200, `{apiVersion, session, results}` |
-| `POST /api/search/{id}/cancel` | 200, `{apiVersion, session}`; idempotent |
-
-Creation requires `Content-Type: application/json`. Only `text` is mandatory; omitted
-fields default to general mode, all registered sources, no filters, and 20 results
-per source. Example input (currently returns **503**, not an accepted session):
+| `GET /api/health` | Versioned application health |
+| `GET /api/sources` | `searchAvailable` and source capabilities/status |
+| `POST /api/search` | 202, `{apiVersion, session}` and `Location` |
+| `GET /api/search/{id}` | `{apiVersion, session}` |
+| `GET /api/search/{id}/results` | `{apiVersion, session, results}` |
+| `POST /api/search/{id}/cancel` | Idempotent cancellation with preserved results |
 
 ```json
 {
-  "text": "history of libraries",
-  "field": "subject",
-  "publication": {"from": 1801, "to": 1900},
-  "language": "en",
+  "text": "Thomas Aquinas",
+  "field": "author",
   "sourceIds": ["google-books"],
-  "maxResultsPerSource": 20
+  "language": "la",
+  "publication": {"from": 1801, "to": 1900},
+  "maxResultsPerSource": 40
 }
 ```
 
-An optional `availability` filter accepts `viewable`, `pdf`, `epub`, `restricted`,
-`metadata_only`, or `unknown`. Optional language, availability, and year bounds may
-be null; the publication container must be an object. Unknown JSON properties,
-duplicate keys, invalid types, duplicate sources, and out-of-range values are rejected.
-Clients cannot supply provider URLs. A source that cannot support the requested mode
-or any filter is skipped rather than silently running a weaker query. If at least one
-source can run, the session includes all selected sources with their own statuses.
+Optional `availability` accepts `viewable`, `pdf`, `epub`, `restricted`,
+`metadata_only`, or `unknown`. Null/omitted filters mean unrestricted. Unknown
+properties, duplicate JSON keys, invalid types, invalid ranges and unknown sources
+are rejected. No selected operational adapter returns 503. Invalid requests return
+422, and local session/work limits return 429. Source failures inside accepted
+sessions are typed progress states, not HTTP errors on the polling endpoint.
+Results contain normalized `record` and bounded structured `original` values.
 
-A session contains `id`, `state`, `createdAt` (UTC), `finished`,
-`cancellationRequested`, `hasErrors`, and `sources`. Session states are `pending`,
-`running`, `completed`, `partial`, `failed`, and `cancelled`. Each source includes
-`sourceId`, `state`, `recordsRetrieved`, `recordsAccepted`, `recordsRejected`,
-`searchCompleted`, `localFiltersApplied`, `coverageIncomplete`, `resultLimitReached`,
-`filters` (ID and application support), and a nullable structured `error`.
-
-Source states are `pending`, `running`, `completed`, `empty`, `rate_limited`,
-`blocked`, `failed`, `timed_out`, `cancelled`, `unsupported`, `disabled`, and
-`external_only`. Retrieved counts precede normalization and filtering; accepted counts
-refer to stored unique records. Rejected counts refer to invalid records, not normal
-filter exclusions or duplicates. A finished session may contain partial results and
-errors. Cancellation preserves records already accepted and prevents later additions.
-Cancelling an already-finished session leaves its outcome unchanged.
-
-Each results entry contains `record` (normalized) and `original` (the bounded
-structured source record). Optional values are null, collections are arrays. Access
-entries distinguish actual formats from restricted, metadata-only, or unknown access;
-textual evidence distinguishes `confirmed_occurrence`, `source_excerpt`,
-`approximate_match`, and `unverified`. The core does not independently verify source
-claims or promote a snippet into a confirmed occurrence.
-
-Errors use `{ "apiVersion": "1", "error": { "code": "...", "message": "..." } }`:
-
-| HTTP | Meaning / representative code |
-| --- | --- |
-| 400 | Malformed JSON or duplicate keys: `invalid_json` |
-| 403 | Disallowed origin/preflight: `origin_not_allowed`, `invalid_preflight` |
-| 404 | Missing or forgotten session: `session_not_found` |
-| 410 | Remembered expired session: `session_expired` |
-| 413 | Request body exceeds the size limit |
-| 415 | Missing/wrong JSON content type: `unsupported_media_type` |
-| 422 | Invalid input, unknown source, unsupported search, or insufficient record budget |
-| 429 | `session_limit_reached` or `work_limit_reached` |
-| 503 | No selected operational adapter: `no_available_providers` |
-| 500 | Sanitized internal error |
-
-Provider failures inside an existing session are source statuses, not HTTP failures
-of the polling request. The frontend's `services/search.ts` exposes create, progress,
-results, and cancel operations with runtime validation and typed `ApiError` values.
-These functions remain disconnected from the main search form.
-
-```sh
-curl -i http://127.0.0.1:8080/api/health
-curl -i http://127.0.0.1:8080/api/sources
-```
+`useSearchSession` polls the results endpoint, which also contains progress, at
+750 ms after each response. It stops on completion, cancellation or disconnection,
+and is bounded by 60 polls and 60 seconds. Retrying progress does not reset those
+limits. Each HTTP request has an 8-second timeout. Generation guards prevent stale
+results replacing a new search; unmount aborts pending requests. Complete result
+snapshots replace prior snapshots to prevent duplicates. No WebSockets or SSE are
+used. Disconnection preserves received results and offers bounded resumption.
+A session whose creation response is lost expires on the server even if its ID
+could not be recovered for cancellation.
 
 ## Tests
 
@@ -415,42 +280,55 @@ npm --prefix frontend run build
 git diff --check
 ```
 
-GoogleTest covers configuration and domain validation, native/local/unsupported
-filters, concurrent dispatch, partial failures, timeout, cancellation, duplicate/late
-callbacks, expiry, resource limits, stable ordering, provenance, and API contracts.
-Controlled providers use explicit completion gates; coordinator deadline/expiry
-tests inject a clock instead of waiting for wall-clock time. The Python integration
-test starts the actual server on loopback with temporary storage, validates HTTP responses and CORS, checks
-invalid startup configuration and unsupported routes/methods, and stops the process.
-A second HTTP integration test runs the same production routes with test-only injected
-adapters and a virtual clock to exercise accepted sessions, progress, results,
-cancellation, resource limits, timeouts, and expiry. Both require permission to
-bind a local TCP socket. To run only the C++ unit tests
-in an environment that prohibits local sockets:
+Normal tests never depend on Google. GoogleTest substitutes a controlled HTTP
+client and covers queries/encoding, date/language validation, metadata/access,
+fallback, pagination, budgets, partial failures, callback lifetime and readiness.
+Three Python HTTP suites exercise startup/CORS, federated sessions, and the real
+Google Books adapter with a fixture transport over loopback. Fixture servers are
+separate test executables and cannot inject demonstration data into production.
+Vitest covers form submission, API result rendering, source selection/catalog
+refresh, cancellation, bounded polling, stale responses, disconnects and XSS.
+Use `ctest --test-dir build -E http_integration --output-on-failure` when local
+socket binding is unavailable.
+
+The external diagnostic is opt-in and is **not** registered with CTest:
 
 ```sh
-ctest --test-dir build --output-on-failure -E 'http_integration'
+cmake -S . -B build -DCMAKE_PREFIX_PATH="$deps_prefix" -DLIBEROMNIA_LIVE_CHECK=ON
+cmake --build build --target liberomnia_books_live --parallel 4
+./build/backend/liberomnia_books_live
 ```
 
-Vitest covers initial rendering, real-client integration through mocked `fetch`,
-loading and independent failure states, retry, cancellation, stale response
-handling, timeouts, invalid contracts, safe text rendering, historical filters,
-and the prepared search-session services including structured errors and provenance.
-No test requires Google Books, Internet Archive, Open Library, Gallica, or Anna's
-Archive to be available. DOM rendering tests do not replace visual or screen-reader
-testing in a real browser.
+It makes one query for *The Imitation of Christ* (up to three results), reports the
+real upstream status, and compares returned identities, titles and publication
+metadata against the response received in that same request. Exit 0 means a valid
+response, 1 a comparison failure, and 2 an upstream failure. Do not treat 403, 429,
+timeout or unexpected zero results as fabricated success or bypass access controls.
 
-## Next stage
+For an optional ThreadSanitizer build on a supported host:
 
-Implement a real Google Books adapter with `SearchProvider`, declaring only
-verified modes and native/local filter support. Bound upstream response size and
-records, translate 403/429 and transport failures into typed provider errors, honor
-the stop token, and complete exactly once. Register it explicitly alongside its
-available source descriptor, then validate against fixture-based contract tests and
-opt-in live checks before enabling the UI. The coordinator does not need provider-
-specific changes. Streaming, pagination, retries/backoff, persistent history, cross-
-source edition matching, OCR, and actual library integrations remain unimplemented.
-Add SQLite repositories and migrations only when a concrete feature needs them.
+```sh
+cmake -S . -B /tmp/liberomnia-tsan -DCMAKE_PREFIX_PATH="$deps_prefix" \
+  -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS='-fsanitize=thread -g -O1 -fno-omit-frame-pointer' \
+  -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=thread \
+  -DCMAKE_GTEST_DISCOVER_TESTS_DISCOVERY_MODE=PRE_TEST
+cmake --build /tmp/liberomnia-tsan --parallel 4
+ctest --test-dir /tmp/liberomnia-tsan --output-on-failure
+```
+
+## Official references and operating constraints
+
+Implementation follows the [usage guide](https://developers.google.com/books/docs/v1/using),
+[volumes.list parameters](https://developers.google.com/books/docs/v1/reference/volumes/list),
+and [Volume resource](https://developers.google.com/books/docs/v1/reference/volumes).
+Operators must comply with the [Google Books terms](https://developers.google.com/books/terms)
+and [Google API terms](https://developers.google.com/terms/), including attribution,
+content removal, privacy and permitted content retention. Provide rights-holder
+contact information when publishing an installation. No scraping, CAPTCHA bypass,
+book redistribution, paid access unlocking or persistent upstream caching is included.
+
+Cross-source work/edition matching, OCR, authentication, persistent history and
+additional library integrations remain outside this stage.
 
 ## License
 
