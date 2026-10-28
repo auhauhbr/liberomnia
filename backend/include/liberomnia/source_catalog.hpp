@@ -6,7 +6,7 @@
 namespace liberomnia {
 
 enum class IntegrationType { api, external };
-enum class ImplementationStatus { planned, available };
+enum class ImplementationStatus { planned, available, temporarily_unavailable };
 enum class CapabilityStatus { planned, confirmed };
 
 struct SourceCapability {
