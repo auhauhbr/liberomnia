@@ -3,7 +3,6 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from '../src/App.vue'
 import BibliographicCard from '../src/components/BibliographicCard.vue'
-import SearchPanel from '../src/components/SearchPanel.vue'
 import { useSearchSession } from '../src/composables/useSearchSession'
 import type { BibliographicRecord, SearchResultsResponse, SearchSession, SourcesResponse } from '../src/types/api'
 import { catalog, health, jsonResponse } from './fixtures'
@@ -58,7 +57,7 @@ describe('bibliographic search flow', () => {
     await app.find('#period').setValue('nineteenth')
     await app.find('#language').setValue('la')
     await app.find('#availability').setValue('viewable')
-    await app.find('form').trigger('submit')
+    await app.find('#bibliographic-search').trigger('submit')
     await flushPromises()
     expect(fetch).toHaveBeenCalledWith('/api/search', expect.objectContaining({ body: JSON.stringify({ text: 'Aquinas',
       field: 'subject', sourceIds: ['google-books'], language: 'la', availability: 'viewable',
@@ -86,7 +85,7 @@ describe('bibliographic search flow', () => {
       return jsonResponse(results(stopped ? cancelled : session, []))
     })
     const app = mount(App); await flushPromises()
-    await app.find('#search-query').setValue('Aquinas'); await app.find('form').trigger('submit'); await flushPromises()
+    await app.find('#search-query').setValue('Aquinas'); await app.find('#bibliographic-search').trigger('submit'); await flushPromises()
     expect(app.text()).toContain('Pesquisando nos acervos')
     await app.find('.cancel-search').trigger('click'); await flushPromises()
     expect(app.text()).toContain('Pesquisa cancelada')
@@ -96,18 +95,19 @@ describe('bibliographic search flow', () => {
     app.unmount()
   })
   it('updates the catalog and prevents selecting sources that became unavailable', async () => {
-    const panel = mount(SearchPanel, { props: { catalog: { status: 'success', data: available } } })
-    await panel.find('#search-query').setValue('Title')
-    expect(panel.find<HTMLButtonElement>('button[type="submit"]').element.disabled).toBe(false)
-    await panel.find('input[value="google-books"]').setValue(false)
-    expect(panel.find<HTMLButtonElement>('button[type="submit"]').element.disabled).toBe(true)
-    await panel.setProps({ catalog: { status: 'success', data: catalog } })
-    await panel.find('form').trigger('submit')
-    expect(panel.emitted('search')).toBeUndefined()
     const fetch = mockApi(); const app = mount(App); await flushPromises()
+    await app.find('#search-query').setValue('Title')
+    expect(app.find<HTMLButtonElement>('.search-button').element.disabled).toBe(false)
+    await app.find('input[value="google-books"]').setValue(false)
+    expect(app.find<HTMLButtonElement>('.search-button').element.disabled).toBe(true)
     await app.find('.section-heading button').trigger('click'); await flushPromises()
     expect(fetch.mock.calls.filter(([path]) => path === '/api/sources')).toHaveLength(2)
-    app.unmount(); panel.unmount()
+    expect(app.find<HTMLInputElement>('input[value="google-books"]').element.checked).toBe(false)
+    fetch.mockImplementation(async path => jsonResponse(path === '/api/health' ? health : catalog))
+    await app.find('.section-heading button').trigger('click'); await flushPromises()
+    expect(app.find<HTMLButtonElement>('.search-button').element.disabled).toBe(true)
+    expect(app.findAll('.source-strip-item')).toHaveLength(catalog.sources.length)
+    app.unmount()
   })
   it('rejects unsafe links and never turns restricted tokens into downloads', () => {
     const card = mount(BibliographicCard, { props: { record: { ...record, originalUrl: 'javascript:alert(1)',
