@@ -4,11 +4,16 @@ cmake-build-*/
 CMakeFiles/
 CMakeCache.txt
 compile_commands.json
+Testing/
+_deps/
+CMakeUserPresets.json
 
 # Node.js / Vue
 node_modules/
 dist/
 coverage/
+.vite/
+*.tsbuildinfo
 
 # Environment and databases
 .env
@@ -18,9 +23,16 @@ coverage/
 *.db-*
 *.sqlite
 *.sqlite3
+*.sqlite-*
+*.sqlite3-*
+data/
 
 # Temporary files
 *.log
 *.tmp
 .DS_Store
+*.swp
+*.swo
+__pycache__/
+*.pyc
 

@@ -1,0 +1,54 @@
+#include "liberomnia/config.hpp"
+
+#include <gtest/gtest.h>
+#include <map>
+#include <stdexcept>
+
+namespace {
+liberomnia::Config load(const std::map<std::string, std::string>& values = {}) {
+    return liberomnia::Config::from_environment([&values](std::string_view key) -> std::optional<std::string> {
+        const auto found = values.find(std::string(key));
+        return found == values.end() ? std::nullopt : std::optional(found->second);
+    });
+}
+
+TEST(Config, DefaultsBindToLoopbackAndDoNotOpenDatabase) {
+    const auto config = load();
+    EXPECT_EQ(config.address, "127.0.0.1");
+    EXPECT_EQ(config.port, 8080);
+    EXPECT_EQ(config.database_path(), std::filesystem::path("./data/liberomnia.sqlite3"));
+    EXPECT_EQ(config.frontend_origin, "http://localhost:5173");
+}
+
+TEST(Config, SupportsOverridesAndIpv6) {
+    const auto config = load({{"LIBEROMNIA_ADDRESS", "::1"}, {"LIBEROMNIA_PORT", "9090"},
+        {"LIBEROMNIA_DATA_DIR", "/tmp/library"}, {"LIBEROMNIA_FRONTEND_ORIGIN", "http://[::1]:5173"}});
+    EXPECT_EQ(config.address, "::1");
+    EXPECT_EQ(config.port, 9090);
+    EXPECT_EQ(config.database_path(), "/tmp/library/liberomnia.sqlite3");
+    EXPECT_EQ(config.frontend_origin, "http://[::1]:5173");
+}
+
+TEST(Config, RejectsInvalidPorts) {
+    for (const auto* value : {"", "0", "65536", "-1", "8080extra", " 80", "999999999999999"}) {
+        EXPECT_THROW(load({{"LIBEROMNIA_PORT", value}}), std::invalid_argument) << value;
+    }
+    EXPECT_EQ(load({{"LIBEROMNIA_PORT", "65535"}}).port, 65535);
+}
+
+TEST(Config, RejectsInvalidAddressAndDataPath) {
+    EXPECT_THROW(load({{"LIBEROMNIA_ADDRESS", "localhost"}}), std::invalid_argument);
+    EXPECT_THROW(load({{"LIBEROMNIA_ADDRESS", "999.1.2.3"}}), std::invalid_argument);
+    EXPECT_THROW(load({{"LIBEROMNIA_DATA_DIR", ""}}), std::invalid_argument);
+}
+
+TEST(Config, RejectsUnsafeOrigins) {
+    for (const auto* value : {"*", "null", "https://example.org/", "https://user@example.org",
+             "http://localhost:0", "http://localhost:99999", "http://[abc]", "http://localhost\r\nX: evil"}) {
+        EXPECT_THROW(load({{"LIBEROMNIA_FRONTEND_ORIGIN", value}}), std::invalid_argument) << value;
+    }
+    EXPECT_TRUE(load({{"LIBEROMNIA_FRONTEND_ORIGIN", ""}}).frontend_origin.empty());
+    EXPECT_EQ(load({{"LIBEROMNIA_FRONTEND_ORIGIN", "https://library.example"}}).frontend_origin,
+              "https://library.example");
+}
+} // namespace
