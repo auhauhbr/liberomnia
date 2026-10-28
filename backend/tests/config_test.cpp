@@ -36,6 +36,19 @@ TEST(Config, RejectsInvalidPorts) {
     EXPECT_EQ(load({{"LIBEROMNIA_PORT", "65535"}}).port, 65535);
 }
 
+TEST(Config, ValidatesSearchResourceLimits) {
+    const auto config = load({{"LIBEROMNIA_SEARCH_CONCURRENCY", "2"}, {"LIBEROMNIA_SEARCH_TIMEOUT_MS", "1000"}});
+    EXPECT_EQ(config.search.max_concurrent_providers, 2U);
+    EXPECT_EQ(config.search.provider_timeout, std::chrono::milliseconds(1000));
+    for (const auto* key : {"LIBEROMNIA_SEARCH_CONCURRENCY", "LIBEROMNIA_SEARCH_MAX_PENDING",
+         "LIBEROMNIA_SEARCH_MAX_SESSIONS", "LIBEROMNIA_SEARCH_MAX_RECORDS", "LIBEROMNIA_SEARCH_TIMEOUT_MS",
+         "LIBEROMNIA_SEARCH_SESSION_TTL_MS"}) {
+        EXPECT_THROW(load({{key, "0"}}), std::invalid_argument);
+        EXPECT_THROW(load({{key, "999999999999999"}}), std::invalid_argument);
+        EXPECT_THROW(load({{key, "2x"}}), std::invalid_argument);
+    }
+}
+
 TEST(Config, RejectsInvalidAddressAndDataPath) {
     EXPECT_THROW(load({{"LIBEROMNIA_ADDRESS", "localhost"}}), std::invalid_argument);
     EXPECT_THROW(load({{"LIBEROMNIA_ADDRESS", "999.1.2.3"}}), std::invalid_argument);

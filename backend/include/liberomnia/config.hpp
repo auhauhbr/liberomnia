@@ -1,5 +1,7 @@
 #pragma once
 
+#include "liberomnia/search_coordinator.hpp"
+
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -16,6 +18,7 @@ struct Config {
     std::uint16_t port{8080};
     std::filesystem::path data_directory{"./data"};
     std::string frontend_origin{"http://localhost:5173"};
+    search::CoordinatorOptions search;
 
     [[nodiscard]] static Config from_environment();
     [[nodiscard]] static Config from_environment(const Environment& environment);

@@ -72,6 +72,21 @@ Config Config::from_environment(const Environment& environment) {
         config.frontend_origin = *value;
     }
     validate_origin(config.frontend_origin);
+    const auto limit = [&](std::string_view name, std::size_t fallback, std::size_t maximum) {
+        const auto value = environment(name);
+        if (!value) return fallback;
+        std::size_t number{};
+        const auto [end, status] = std::from_chars(value->data(), value->data() + value->size(), number);
+        if (status != std::errc{} || end != value->data() + value->size() || number == 0 || number > maximum)
+            throw std::invalid_argument(std::string(name) + " is outside the supported resource limits");
+        return number;
+    };
+    config.search.max_concurrent_providers = limit("LIBEROMNIA_SEARCH_CONCURRENCY", 4, 32);
+    config.search.max_pending_work = limit("LIBEROMNIA_SEARCH_MAX_PENDING", 64, 1024);
+    config.search.max_sessions = limit("LIBEROMNIA_SEARCH_MAX_SESSIONS", 32, 256);
+    config.search.max_records_per_session = limit("LIBEROMNIA_SEARCH_MAX_RECORDS", 200, 1000);
+    config.search.provider_timeout = std::chrono::milliseconds(limit("LIBEROMNIA_SEARCH_TIMEOUT_MS", 8000, 300000));
+    config.search.session_ttl = std::chrono::milliseconds(limit("LIBEROMNIA_SEARCH_SESSION_TTL_MS", 900000, 86400000));
     return config;
 }
 
