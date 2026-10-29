@@ -1,6 +1,7 @@
 #include "liberomnia/config.hpp"
 
 #include <arpa/inet.h>
+#include <algorithm>
 #include <charconv>
 #include <cstdlib>
 #include <regex>
@@ -111,6 +112,6 @@ bool GoogleBooksOptions::is_valid() const {
     return page_size >= 1 && page_size <= 40 && max_pages >= 1 && max_pages <= 10 &&
         call_budget >= 1 && call_budget <= 11 && max_response_bytes >= 1024 && max_response_bytes <= 4194304 &&
         timeout.count() >= 1 && timeout <= std::chrono::seconds(30) && api_key.size() <= 256 &&
-        api_key.find_first_of("\r\n") == std::string::npos;
+        std::none_of(api_key.begin(), api_key.end(), [](unsigned char c) { return c <= 32 || c >= 127; });
 }
 }

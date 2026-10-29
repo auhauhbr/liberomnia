@@ -4,6 +4,7 @@
 
 namespace liberomnia::search {
 struct GoogleBooksOptions {
+    bool enabled{true};
     std::string api_key;
     std::size_t page_size{40};
     std::size_t max_pages{3};

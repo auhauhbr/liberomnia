@@ -13,16 +13,12 @@ int main() {
         std::filesystem::create_directories(config.data_directory / "runtime");
         auto sources = liberomnia::source_catalog();
         std::vector<std::shared_ptr<liberomnia::search::SearchProvider>> adapters;
-        if (config.google_books_enabled) {
-            auto books = std::make_shared<liberomnia::search::GoogleBooksProvider>(
-                liberomnia::search::make_books_http_client(), config.google_books);
-            for (auto& source : sources) if (source.id == books->source().id) source = books->source();
-            books->check_availability();
-            adapters.push_back(std::move(books));
-        } else {
-            for (auto& source : sources) if (source.id == "google-books")
-                source.implementation_status = liberomnia::ImplementationStatus::temporarily_unavailable;
-        }
+        auto options = config.google_books;
+        options.enabled = config.google_books_enabled;
+        auto books = std::make_shared<liberomnia::search::GoogleBooksProvider>(
+            liberomnia::search::make_books_http_client(), std::move(options));
+        for (auto& source : sources) if (source.id == books->source().id) source = books->source();
+        adapters.push_back(std::move(books));
         auto registry = std::make_shared<liberomnia::search::ProviderRegistry>(std::move(sources), std::move(adapters));
         auto coordinator = std::make_shared<liberomnia::search::SearchCoordinator>(registry, config.search);
         liberomnia::http::configure_application(drogon::app(), config, std::move(coordinator));
