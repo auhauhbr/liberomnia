@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { sourceStatusLabel } from '../services/sourceStatus'
 import type { SearchFormState } from '../composables/useSearchForm'
 import type { LoadState, Source, SourcesResponse } from '../types/api'
 
@@ -46,7 +47,7 @@ function onToggle(event: Event) { emit('update:open', (event.target as HTMLDetai
             <div v-else class="source-options">
               <label v-for="source in catalog.data.sources" :key="source.id">
                 <input form="bibliographic-search" v-model="form.sourceIds" type="checkbox" :value="source.id" :disabled="!available.some(item => item.id === source.id)" />
-                <span>{{ source.name }} <small>{{ source.implementationStatus === 'available' ? 'Disponível' : source.implementationStatus === 'temporarily_unavailable' ? 'Indisponível' : 'Planejada' }}</small></span>
+                <span>{{ source.name }} <small>{{ sourceStatusLabel(source) }}</small></span>
               </label>
             </div>
           </template>

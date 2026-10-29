@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { diagnosticMessage, sourceSearchAllowed } from '../services/sourceStatus'
 import { computed, inject, watch } from 'vue'
 import { searchFormKey, useSearchForm } from '../composables/useSearchForm'
 import type { SearchMode } from '../composables/useSearchForm'
@@ -12,21 +13,27 @@ const modes: { value: SearchMode; label: string }[] = [
   { value: 'author', label: 'Autor' }, { value: 'subject', label: 'Assunto' }, { value: 'passage', label: 'Trecho' },
 ]
 const available = computed(() => props.catalog.status === 'success' && props.catalog.data.searchAvailable
-  ? props.catalog.data.sources.filter(source => source.implementationStatus === 'available' && source.integrationType === 'api') : [])
+  ? props.catalog.data.sources.filter(sourceSearchAllowed) : [])
 let selectionInitialized = false
 watch(available, sources => {
   if (props.catalog.status !== 'success') return
-  form.sourceIds = form.sourceIds.filter(id => sources.some(source => source.id === id))
+  const known = props.catalog.data.sources
+  form.sourceIds = form.sourceIds.filter(id => known.some(source => source.id === id && source.integrationType === 'api'))
   if (!selectionInitialized && sources.length) {
     form.sourceIds = sources.map(source => source.id)
     selectionInitialized = true
   }
 }, { immediate: true })
+const unavailableMessage = computed(() => {
+  if (props.catalog.status !== 'success') return ''
+  return props.catalog.data.sources.filter(source => source.operational?.error && !sourceSearchAllowed(source))
+    .map(source => `${source.name}: ${diagnosticMessage(source.operational!.error!)}`).join(' ')
+})
 const selectedNames = computed(() => available.value.filter(source => form.sourceIds.includes(source.id)).map(source => source.name).join(', '))
-const canSearch = computed(() => available.value.length > 0 && form.sourceIds.length > 0 && !rangeError.value && !!form.query.trim() && !props.busy)
+const canSearch = computed(() => available.value.length > 0 && available.value.some(source => form.sourceIds.includes(source.id)) && !rangeError.value && !!form.query.trim() && !props.busy)
 function submit() {
   if (!canSearch.value) return
-  emit('search', { text: form.query.trim(), field: form.mode, sourceIds: [...form.sourceIds],
+  emit('search', { text: form.query.trim(), field: form.mode, sourceIds: available.value.filter(source => form.sourceIds.includes(source.id)).map(source => source.id),
     language: form.language || null, availability: (form.availability || null) as AccessAvailability | null,
     publication: { from: form.from === '' ? null : Number(form.from), to: form.to === '' ? null : Number(form.to) },
     maxResultsPerSource: 40 })
@@ -57,7 +64,7 @@ defineExpose({ submit, canSearch })
       </div>
       <p class="selected-sources">Fontes selecionadas: <strong>{{ selectedNames || 'nenhuma fonte operacional selecionada' }}</strong>.</p>
       <p v-if="rangeError" class="field-error" role="alert">{{ rangeError }} Corrija o intervalo nos filtros avançados.</p>
-      <p v-if="!available.length" id="search-unavailable" class="search-notice" role="status">Pesquisa temporariamente indisponível. Nenhuma fonte operacional no catálogo atual. Verifique a conexão e atualize o catálogo.</p>
+      <p v-if="!available.length" id="search-unavailable" class="search-notice" role="status">{{ unavailableMessage || 'Pesquisa temporariamente indisponível. Nenhuma fonte operacional no catálogo atual. Verifique a conexão e atualize o catálogo.' }}</p>
     </form>
   </section>
 </template>

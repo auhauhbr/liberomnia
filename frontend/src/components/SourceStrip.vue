@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { sourceStatusLabel } from '../services/sourceStatus'
 import type { LoadState, SourcesResponse } from '../types/api'
 defineProps<{ catalog: LoadState<SourcesResponse> }>()
 defineEmits<{ navigate: [] }>()
@@ -12,8 +13,8 @@ defineEmits<{ navigate: [] }>()
       <p v-if="!catalog.data.sources.length" class="strip-message">Nenhuma fonte cadastrada.</p>
       <a v-for="source in catalog.data.sources" :key="source.id" href="#sources" class="source-strip-item" :data-source="source.id" @click="$emit('navigate')">
         <strong>{{ source.name }}</strong>
-        <span><span class="strip-indicator" aria-hidden="true">{{ source.implementationStatus === 'available' ? '●' : '○' }}</span>
-          {{ source.integrationType === 'external' ? 'Externa · ' : 'API · ' }}{{ source.implementationStatus === 'available' ? 'disponível' : source.implementationStatus === 'temporarily_unavailable' ? 'indisponível' : 'planejada' }}</span>
+        <span><span class="strip-indicator" aria-hidden="true">{{ (source.operational ? source.operational.state === 'available' : source.implementationStatus === 'available') ? '●' : '○' }}</span>
+          {{ source.integrationType === 'external' ? 'Externa · ' : 'API · ' }}{{ sourceStatusLabel(source).toLocaleLowerCase('pt-BR') }}</span>
       </a>
     </template>
   </div>

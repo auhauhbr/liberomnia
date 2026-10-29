@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { sourceSearchAllowed } from './services/sourceStatus'
 import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import AppHeader from './components/AppHeader.vue'
 import SidebarNavigation from './components/SidebarNavigation.vue'
@@ -30,7 +31,7 @@ const advancedOpen = ref(false)
 const desktop = ref(false)
 let media: MediaQueryList | undefined
 const available = computed(() => catalog.value.status === 'success' && catalog.value.data.searchAvailable
-  ? catalog.value.data.sources.filter(source => source.implementationStatus === 'available' && source.integrationType === 'api') : [])
+  ? catalog.value.data.sources.filter(sourceSearchAllowed) : [])
 const topActive = computed(() => active.value === 'sources' ? 'sources' : active.value === 'home' ? 'home' : 'search')
 const sidebarFilters = computed(() => !!session.value && desktop.value)
 
@@ -54,6 +55,7 @@ function readHash() {
   const section = window.location.hash.slice(1)
   if (['home', 'search', 'sources', 'passage', 'advanced', 'research-guide'].includes(section)) void navigate(section)
 }
+watch(() => session.value?.finished, finished => { if (finished) void refresh() })
 watch(session, (value, previous) => { if (value && value.id !== previous?.id && desktop.value) advancedOpen.value = true })
 onMounted(() => {
   media = window.matchMedia?.('(min-width: 1100px)')

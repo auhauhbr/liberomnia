@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { diagnosticMessage } from '../services/sourceStatus'
 import type { BibliographicRecord, SearchSession, SourceState } from '../types/api'
 import BibliographicCard from './BibliographicCard.vue'
 
@@ -23,7 +24,7 @@ const states: Record<SourceState, string> = {
         <span v-if="source.localFiltersApplied">Filtros aplicados localmente aos registros recuperados.</span>
         <span v-if="source.coverageIncomplete">Cobertura incompleta: esta pesquisa não esgota o acervo.</span>
         <span v-if="source.resultLimitReached">Limite de páginas, chamadas ou resultados atingido.</span>
-        <span v-if="source.error">{{ source.error.message }}</span>
+        <span v-if="source.error">{{ diagnosticMessage(source.error) }}</span>
       </p>
       <p v-if="session?.finished && !records.length && !session.hasErrors && session.state !== 'cancelled'">Nenhum resultado nos registros consultados para estes critérios.</p>
     </div>

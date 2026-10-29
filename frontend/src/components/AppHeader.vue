@@ -13,7 +13,7 @@ defineEmits<{ navigate: [section: string]; search: [] }>()
     <div class="header-topline">
       <h1><a class="brand" href="#home" @click="$emit('navigate', 'home')">LiberOmnia</a></h1>
       <StatusBadge :tone="health.status === 'success' ? 'success' : health.status === 'error' ? 'error' : 'neutral'">
-        {{ health.status === 'success' ? 'API conectada' : health.status === 'error' ? 'API indisponível' : 'Conectando à API…' }}
+        {{ health.status === 'success' ? 'Backend conectado' : health.status === 'error' ? 'API indisponível' : 'Conectando à API…' }}
       </StatusBadge>
     </div>
     <p class="header-subtitle" lang="en">Discover books across digital libraries.</p>

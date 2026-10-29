@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { diagnosticMessage } from '../services/sourceStatus'
 import type { LoadState, SearchSession, SourcesResponse, SourceState } from '../types/api'
 const props = defineProps<{ session: SearchSession; catalog: LoadState<SourcesResponse> }>()
 const labels: Record<SourceState, string> = {
@@ -16,7 +17,7 @@ function sourceName(id: string) { return props.catalog.status === 'success' ? pr
       <li v-for="source in session.sources" :key="source.sourceId">
         <div class="source-progress-heading"><strong>{{ sourceName(source.sourceId) }}</strong><span>{{ labels[source.state] }}</span></div>
         <p>{{ source.recordsAccepted }} aceito(s) · {{ source.recordsRetrieved }} recuperado(s)</p>
-        <p v-if="source.error" class="field-error">{{ source.error.message }}</p>
+        <p v-if="source.error" class="field-error">{{ diagnosticMessage(source.error) }}</p>
       </li>
     </ul>
   </section>
