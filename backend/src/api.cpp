@@ -44,6 +44,20 @@ drogon::HttpResponsePtr sources_response(const search::ProviderRegistry& registr
         item["implementationStatus"] = status == ImplementationStatus::available
                                            ? "available" : status == ImplementationStatus::temporarily_unavailable
                                            ? "temporarily_unavailable" : "planned";
+        if (entry.adapter) if (const auto operational = entry.adapter->operational_status()) {
+            auto& runtime = item["operational"];
+            runtime["implemented"] = operational->implemented;
+            runtime["configured"] = operational->configured;
+            runtime["searchAllowed"] = operational->search_allowed;
+            runtime["state"] = operational->state;
+            runtime["lastSuccessfulAt"] = operational->last_successful_at
+                ? Json::Value(Json::Int64(*operational->last_successful_at)) : Json::Value();
+            runtime["error"] = Json::Value();
+            if (operational->error) {
+                runtime["error"]["code"] = std::string(search::provider_error_code(*operational->error));
+                runtime["error"]["message"] = std::string(search::provider_error_message(*operational->error));
+            }
+        }
         item["filterSupport"]["publication"] = std::string(search::name(entry.capabilities.publication));
         item["filterSupport"]["language"] = std::string(search::name(entry.capabilities.language));
         item["filterSupport"]["availability"] = std::string(search::name(entry.capabilities.availability));

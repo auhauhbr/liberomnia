@@ -1,3 +1,4 @@
+import { operationalStates } from '../types/api'
 import type { HealthResponse, Source, SourceCapability, SourcesResponse } from '../types/api'
 
 export function isObject(value: unknown): value is Record<string, unknown> {
@@ -21,10 +22,19 @@ function isFilterSupport(value: unknown): boolean {
   })
 }
 
+function isOperational(value: unknown): boolean {
+  return isObject(value) && typeof value.implemented === 'boolean' && typeof value.configured === 'boolean'
+    && typeof value.searchAllowed === 'boolean' && operationalStates.some(state => state === value.state)
+    && (value.lastSuccessfulAt === null || (typeof value.lastSuccessfulAt === 'number' && Number.isSafeInteger(value.lastSuccessfulAt) && value.lastSuccessfulAt >= 0))
+    && (value.error === null || (isObject(value.error) && isNonemptyString(value.error.code) && isNonemptyString(value.error.message)))
+    && (!value.searchAllowed || (value.implemented && value.configured && !['disabled', 'configuration_required', 'configuration_error', 'quota_exhausted', 'permission_denied'].includes(String(value.state))))
+}
+
 function isSource(value: unknown): value is Source {
   return isObject(value) && isNonemptyString(value.id) && isNonemptyString(value.name)
     && (value.integrationType === 'api' || value.integrationType === 'external')
     && (value.implementationStatus === 'planned' || value.implementationStatus === 'available' || value.implementationStatus === 'temporarily_unavailable')
+    && (value.operational === undefined || isOperational(value.operational))
     && (value.filterSupport === undefined || isFilterSupport(value.filterSupport))
     && typeof value.notes === 'string'
     && Array.isArray(value.capabilities) && value.capabilities.every(isCapability)

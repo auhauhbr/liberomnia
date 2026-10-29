@@ -9,11 +9,23 @@ export interface SourceCapability {
   status: 'planned' | 'confirmed'
 }
 
+export const operationalStates = ['disabled', 'configuration_required', 'unverified', 'available', 'rate_limited',
+  'quota_exhausted', 'configuration_error', 'permission_denied', 'communication_error', 'temporary_failure'] as const
+export interface SourceOperationalStatus {
+  implemented: boolean
+  configured: boolean
+  searchAllowed: boolean
+  state: typeof operationalStates[number]
+  lastSuccessfulAt: number | null
+  error: ApiErrorBody | null
+}
+
 export interface Source {
   id: string
   name: string
   integrationType: 'api' | 'external'
   implementationStatus: 'planned' | 'available' | 'temporarily_unavailable'
+  operational?: SourceOperationalStatus
   filterSupport?: { publication: FilterSupport; language: FilterSupport; availability: FilterSupport }
   capabilities: SourceCapability[]
   notes: string
