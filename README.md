@@ -105,9 +105,10 @@ One page is in flight per search. Defaults and hard ceilings are:
 The result cap can stop pagination before the page budget. The single fallback may
 follow a one-page native budget but always consumes the call budget. No automatic
 retry is performed. Shared rate limiting rejects excess work immediately, without
-sleeping. `Retry-After` seconds and HTTP dates establish a shared cooldown; a 429
-without the header uses 60 seconds. HTTP 403 quota reasons are also classified as
-rate limits. These limits apply within one process, not across multiple replicas.
+sleeping. Temporary limits use a shared `Retry-After` cooldown (60 seconds when
+absent or invalid). Daily quota evidence instead blocks the current configuration
+without scheduling a retry. HTTP 403 quota reasons receive the same structured
+classification. These limits apply within one process, not across multiple replicas.
 
 The adapter distinguishes network failure, authentication, access blocking, quota
 limits, invalid responses, server errors, timeout, cancellation and legitimate
@@ -189,21 +190,65 @@ web server with an `/api` reverse proxy. The API does not serve frontend files.
 
 ### Configuration and availability
 
-`GOOGLE_BOOKS_API_KEY` is optional and backend-only. Supply your own credential in
-the process environment or an ignored local `.env` file. Never put a key in frontend
-code, a `VITE_` variable, source control, command-line URLs or shared logs. No example
-credential is provided.
+The [official Google Books usage guide](https://developers.google.com/books/docs/v1/using#auth)
+requires application identification even for public data, using an API key or OAuth.
+LiberOmnia currently implements backend API-key identification, not OAuth. Calls
+without a key are not a supported operating mode: an empty `GOOGLE_BOOKS_API_KEY`
+produces `configuration_required` and sends no external request. Historical anonymous
+responses do not establish reliable access or a usable quota.
 
-At startup, the enabled provider performs one bounded general readiness query for
-*The Imitation of Christ*, requesting one result. Until a valid response arrives,
-`/api/sources` reports it as `temporarily_unavailable` and `searchAvailable: false`.
-Public calls are enabled only after this check succeeds; supplying a key does not
-bypass it. A failed startup check keeps the provider unavailable until restart.
-Correct credentials/quota/network configuration before restarting. The UI's
-**Atualizar catálogo** button reloads status without creating upstream searches.
-During a shared quota cooldown, the catalog also reports temporary unavailability.
-Authentication or access-block failures disable the adapter until restart.
-Health reports application health, not an upstream guarantee.
+To configure the integration, an administrator should:
+
+1. Select the intended project in Google Cloud Console and enable **Books API**
+   (`books.googleapis.com`) under **APIs & Services > Library**.
+2. Create or review an API key under **APIs & Services > Credentials**. Restrict it
+   to Books API and use application restrictions compatible with backend traffic
+   (browser referrer restrictions cannot identify this server).
+3. Supply `GOOGLE_BOOKS_API_KEY` through the backend process environment or an
+   ignored local environment file. The application does not load `.env` automatically.
+   Keep `GOOGLE_BOOKS_ENABLED=true`. Never put credentials in frontend code, `VITE_`
+   variables, tracked files, command-line URLs, logs or screenshots.
+4. Inspect **APIs & Services > Books API > Quotas & System Limits** in that project.
+   Check the relevant daily and per-minute limits, overrides and usage. A zero limit
+   requires administrative review or a quota adjustment; enabling the API or adding
+   a key alone does not guarantee an allocation. No quota value is assumed here.
+5. After correcting credentials, restrictions, API enablement or confirming restored
+   quota, restart the backend to load configuration and clear the administrative
+   block. Then refresh the catalog and deliberately submit a new search. Restarting
+   is not itself a remedy for unavailable quota; do not automate restart/retry loops.
+
+Startup performs **zero Google Books searches**. An enabled, configured adapter is
+`unverified` and can accept its first user search. A valid response records the last
+successful operation time. `/api/health` reports backend health only.
+`/api/sources` adds an optional `operational` object: `implemented`, `configured`,
+`searchAllowed`, `state`, `lastSuccessfulAt` (Unix seconds or null), and a fixed,
+redacted `error`. Existing `implementationStatus` remains a compatibility admission
+signal; `available` there means a search can be attempted, not that Google has
+already responded successfully. Planned libraries retain their existing contracts.
+
+The UI distinguishes missing configuration, an unverified service, last observed
+success, temporary failures and exhausted quota. It refreshes the catalog when a
+session finishes. **Atualizar catálogo** only reads local status; it never probes
+Google or clears administrative blocks. Query text, filters and selected source
+preferences survive temporary unavailability. After a cooldown, refresh the catalog
+to enable a deliberate new search. There are no background probes or automatic retries.
+
+| Diagnostic | Behavior and administrative action |
+| --- | --- |
+| 400 with an invalid-key reason | Configuration block; review the credential. An unclassified 400 requires configuration review without asserting a specific cause. |
+| 401 / unauthenticated | Credential block; review identification. |
+| 403 | Inspect the typed reason: API disabled, incompatible key restrictions, or permission denied. HTTP status alone does not identify Cloud project settings. |
+| 429 / resource exhausted, daily evidence | Daily quota block; zero is distinguished when explicitly reported. No immediate retry and no invented reset time. Verify quota before recovery. |
+| Temporary rate limit / per-minute evidence | Shared cooldown follows `Retry-After` seconds or HTTP date. Missing/invalid headers use a 60-second local cooldown; this does not assert Google's reset time. An unspecified 429 does not imply a particular quota period. |
+| Network, timeout, invalid response, 5xx | Preserve partial results and diagnostics; a 5-second local cooldown (or longer `Retry-After`) permits a later user request. |
+
+Reasons and quota evidence are read from structured Google error fields and, where
+needed, explicit quota wording. Raw messages, metadata, project identifiers and
+credentials are never copied into public diagnostics. Concurrent or late successes
+cannot erase a daily-quota/configuration block. State is in memory for the current
+process; no unauthenticated public reset endpoint is provided. Cloud changes do not
+reach the running process automatically. See [Google error conventions](https://google.aip.dev/193)
+and [quota troubleshooting](https://cloud.google.com/docs/quotas/troubleshoot).
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -217,8 +262,8 @@ Health reports application health, not an upstream guarantee.
 | `LIBEROMNIA_SEARCH_MAX_RECORDS` | `200` | Records per session |
 | `LIBEROMNIA_SEARCH_TIMEOUT_MS` | `8000` | Coordinator deadline |
 | `LIBEROMNIA_SEARCH_SESSION_TTL_MS` | `900000` | Session retention |
-| `GOOGLE_BOOKS_ENABLED` | `true` | `false` disables the adapter and startup network check |
-| `GOOGLE_BOOKS_API_KEY` | Empty | Optional backend credential |
+| `GOOGLE_BOOKS_ENABLED` | `true` | `false` disables searches; startup never probes |
+| `GOOGLE_BOOKS_API_KEY` | Empty | Backend application identification; empty disables searches |
 | `GOOGLE_BOOKS_PAGE_SIZE` | `40` | Upstream page size |
 | `GOOGLE_BOOKS_MAX_PAGES` | `3` | Native page budget |
 | `GOOGLE_BOOKS_CALL_BUDGET` | `4` | Total calls, including fallback |
@@ -228,7 +273,7 @@ Health reports application health, not an upstream guarantee.
 Invalid configuration fails startup without printing credentials. Coordinator
 deadlines may end searches earlier than adapter limits. Public Google Books access
 is subject to project, regional and quota restrictions; an empty key is not a
-promise of quota-free access.
+supported anonymous access mode.
 
 ## HTTP sessions and frontend
 
@@ -282,8 +327,8 @@ git diff --check
 
 Normal tests never depend on Google. GoogleTest substitutes a controlled HTTP
 client and covers queries/encoding, date/language validation, metadata/access,
-fallback, pagination, budgets, partial failures, callback lifetime and readiness.
-Three Python HTTP suites exercise startup/CORS, federated sessions, and the real
+fallback, pagination, budgets, partial failures, callback lifetime, startup without probes, typed quota diagnostics and recovery.
+Four HTTP test runs across three Python suites exercise startup/CORS, federated sessions, and the real
 Google Books adapter with a fixture transport over loopback. Fixture servers are
 separate test executables and cannot inject demonstration data into production.
 Vitest covers form submission, API result rendering, source selection/catalog
@@ -296,10 +341,12 @@ The external diagnostic is opt-in and is **not** registered with CTest:
 ```sh
 cmake -S . -B build -DCMAKE_PREFIX_PATH="$deps_prefix" -DLIBEROMNIA_LIVE_CHECK=ON
 cmake --build build --target liberomnia_books_live --parallel 4
-./build/backend/liberomnia_books_live
+./build/backend/liberomnia_books_live --quota-confirmed
 ```
 
-It makes one query for *The Imitation of Christ* (up to three results), reports the
+Run it only after configuring the API and verifying that one call fits the available quota.
+The explicit flag acknowledges that check. Without configuration or the flag it exits
+without sending a request. It makes at most one query for *The Imitation of Christ* (up to three results), reports the
 real upstream status, and compares returned identities, titles and publication
 metadata against the response received in that same request. Exit 0 means a valid
 response, 1 a comparison failure, and 2 an upstream failure. Do not treat 403, 429,
