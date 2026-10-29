@@ -62,6 +62,14 @@ TEST(Config, ValidatesGoogleBooksLimitsWithoutEmbeddingCredentials) {
         EXPECT_NO_THROW(load({{key,std::to_string(maximum)}}));
     }
     EXPECT_THROW(load({{"GOOGLE_BOOKS_MAX_RESPONSE_BYTES","1023"}}), std::invalid_argument);
+    for (char control : {'\0', '\r', '\n', '\t', ' ', '\x7f'}) {
+        try {
+            (void)load({{"GOOGLE_BOOKS_API_KEY", std::string(1, control)}});
+            FAIL() << "Invalid credential characters were accepted";
+        } catch (const std::invalid_argument& error) {
+            EXPECT_STREQ(error.what(), "Invalid Google Books limits or credential configuration");
+        }
+    }
 }
 
 TEST(Config, RejectsInvalidAddressAndDataPath) {

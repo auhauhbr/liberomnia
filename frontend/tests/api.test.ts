@@ -46,3 +46,17 @@ describe('API contracts', () => {
     await result
   })
 })
+
+describe('operational source contracts', () => {
+  it.each([
+    { state: 'unknown' }, { searchAllowed: 'yes' }, { lastSuccessfulAt: -1 },
+    { error: { code: 'oops' } }, { state: 'quota_exhausted', searchAllowed: true },
+  ])('rejects inconsistent operational status %#', async override => {
+    const operational = { implemented: true, configured: true, searchAllowed: false,
+      state: 'unverified', lastSuccessfulAt: null, error: null, ...override }
+    vi.stubGlobal('fetch',vi.fn().mockResolvedValue(jsonResponse({ ...catalog,
+      sources: [{...catalog.sources[0], operational}],
+    })))
+    await expect(getSources(new AbortController().signal)).rejects.toThrow('catálogo de fontes incompatível')
+  })
+})

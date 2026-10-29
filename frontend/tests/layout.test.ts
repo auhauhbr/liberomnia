@@ -89,7 +89,7 @@ describe('compact library workspace', () => {
 
   it('shows API status without offering decorative theme or language controls', async () => {
     setupApi(); const app = mount(App); await flushPromises()
-    expect(app.find('.site-header').text()).toContain('API conectada')
+    expect(app.find('.site-header').text()).toContain('Backend conectado')
     expect(app.find('.site-header').text()).toContain('Google Books')
     expect(app.find('.sidebar-group').text()).toContain('Google Books')
     expect(app.find('.site-header select').exists()).toBe(false)

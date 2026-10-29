@@ -19,16 +19,20 @@ public:
             if (reader->parse(response.body.data(), response.body.data()+response.body.size(), &body, &error) && body.isObject()) {
                 if (body["items"].isArray()) for (const auto& item : body["items"])
                     if (item.isObject() && item["id"].isString()) volumes[item["id"].asString()] = item;
-                if (body["error"].isObject() && body["error"]["status"].isString())
-                    std::cout << "Upstream status: " << body["error"]["status"].asString() << '\n';
             }
             callback(std::move(response));
         });
     }
 };
-int main() {
+int main(int argc, char** argv) {
+    const auto config = liberomnia::Config::from_environment();
+    if (argc != 2 || std::string_view(argv[1]) != "--quota-confirmed" ||
+        !config.google_books_enabled || config.google_books.api_key.empty()) {
+        std::cerr << "Diagnostic skipped: enable and configure Google Books, verify available quota, then explicitly pass --quota-confirmed.\n";
+        return 2;
+    }
     auto client = std::make_shared<InspectingClient>();
-    auto options = liberomnia::Config::from_environment().google_books;
+    auto options = config.google_books;
     options.max_pages = 1; options.call_budget = 1;
     auto provider = std::make_shared<liberomnia::search::GoogleBooksProvider>(client, options);
     liberomnia::domain::SearchRequest request;
@@ -36,7 +40,7 @@ int main() {
     int exit_code = 0;
     provider->search(request, {}, [&](liberomnia::search::ProviderResult result) {
         if (result.error) {
-            std::cout << "Live search unavailable; typed provider error " << static_cast<int>(*result.error) << ". No books asserted.\n";
+            std::cout << "Live search unavailable; typed provider error " << liberomnia::search::provider_error_code(*result.error) << ". No books asserted.\n";
             exit_code = 2;
         } else {
             std::cout << "Received " << result.records.size() << " records. Coverage incomplete.\n";

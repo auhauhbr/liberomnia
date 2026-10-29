@@ -34,6 +34,10 @@ with tempfile.TemporaryDirectory(prefix="liberomnia-books-test-") as directory:
                 except urllib.error.URLError:
                     if time.monotonic() > deadline: raise
                     time.sleep(.02)
+            assert request("/test/calls")["calls"] == 0
+            initial_books = next(s for s in catalog["sources"] if s["id"] == "google-books")
+            assert initial_books["operational"]["state"] == "unverified"
+            assert initial_books["operational"]["searchAllowed"]
             assert catalog["searchAvailable"]
             assert sum(s["implementationStatus"] == "available" for s in catalog["sources"]) == 1
             def search(**values):
@@ -58,11 +62,34 @@ with tempfile.TemporaryDirectory(prefix="liberomnia-books-test-") as directory:
             for text, state, code in [("invalid","failed","invalid_provider_response"),
                                        ("timeout","timed_out","provider_timed_out"),
                                        ("quota","rate_limited","provider_rate_limited")]:
+                request("/test/advance", {})
                 progress = search(text=text)["session"]["sources"][0]
                 assert (progress["state"],progress["error"]["code"]) == (state,code), progress
             catalog = request("/api/sources")
             assert not catalog["searchAvailable"]
-            print("Google Books HTTP catalog, fallback, historical filters, provenance and typed errors: passed")
+            request("/test/advance", {})
+            recovered = search()
+            assert recovered["session"]["finished"] and not recovered["session"]["hasErrors"]
+            books = next(s for s in request("/api/sources")["sources"] if s["id"] == "google-books")
+            assert books["operational"]["state"] == "available" and books["operational"]["lastSuccessfulAt"]
+            daily = search(text="daily")
+            progress = daily["session"]["sources"][0]
+            assert progress["error"]["code"] == "provider_daily_quota_zero"
+            assert daily["session"]["hasErrors"] and not daily["results"]
+            catalog = request("/api/sources")
+            books = next(s for s in catalog["sources"] if s["id"] == "google-books")
+            assert books["operational"]["state"] == "quota_exhausted"
+            assert not catalog["searchAvailable"]
+            assert "private-fixture" not in json.dumps(catalog) + json.dumps(daily)
+            calls = request("/test/calls")["calls"]
+            request("/test/advance", {})
+            try:
+                search(text="daily")
+                raise AssertionError("Daily quota block accepted another request")
+            except urllib.error.HTTPError as error:
+                assert error.code == 503
+            assert request("/test/calls")["calls"] == calls
+            print("Google Books HTTP startup without probes, catalog, recovery, daily quota, redaction, fallback and historical filters: passed")
         finally:
             server.terminate()
             try: server.wait(timeout=5)

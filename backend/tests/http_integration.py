@@ -13,13 +13,14 @@ import urllib.request
 
 
 def main():
+    configured_missing = len(sys.argv) > 2 and sys.argv[2] == "missing-key"
     executable = str(Path(sys.argv[1]).resolve())
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]
     with tempfile.TemporaryDirectory(prefix="liberomnia-test-") as directory:
         environment = dict(os.environ, LIBEROMNIA_ADDRESS="127.0.0.1",
-                           LIBEROMNIA_PORT=str(port), GOOGLE_BOOKS_ENABLED="false", LIBEROMNIA_DATA_DIR=directory,
+                           LIBEROMNIA_PORT=str(port), GOOGLE_BOOKS_ENABLED="true" if configured_missing else "false", GOOGLE_BOOKS_API_KEY="", LIBEROMNIA_DATA_DIR=directory,
                            LIBEROMNIA_FRONTEND_ORIGIN="http://localhost:5173")
         invalid = subprocess.run([executable], cwd=directory,
                                  env=dict(environment, LIBEROMNIA_PORT="invalid"),
@@ -66,6 +67,12 @@ def main():
                     catalog = json.load(response)
                     assert catalog["apiVersion"] == "1"
                     assert catalog["searchAvailable"] is False
+                    books = next(s for s in catalog["sources"] if s["id"] == "google-books")
+                    assert books["operational"]["implemented"]
+                    assert not books["operational"]["configured"]
+                    assert not books["operational"]["searchAllowed"]
+                    assert books["operational"]["state"] == ("configuration_required" if configured_missing else "disabled")
+                    assert books["operational"]["lastSuccessfulAt"] is None
                     assert len(catalog["sources"]) == 5
                     assert all(s["implementationStatus"] == ("temporarily_unavailable" if s["id"] == "google-books" else "planned") for s in catalog["sources"])
 

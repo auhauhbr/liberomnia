@@ -187,3 +187,68 @@ describe('session lifecycle', () => {
     expect(h.search.session.value?.state).toBe('cancelled'); h.wrapper.unmount()
   })
 })
+
+describe('provider operational diagnostics', () => {
+  function operational(state: NonNullable<SourcesResponse['sources'][number]['operational']>['state'], allowed: boolean,
+    code?: string): SourcesResponse {
+    return { ...available, searchAvailable: allowed, sources: available.sources.map(source => source.id === 'google-books' ? {
+      ...source, implementationStatus: allowed ? 'available' : 'temporarily_unavailable',
+      operational: { implemented: true, configured: state !== 'configuration_required', searchAllowed: allowed, state,
+        lastSuccessfulAt: null, error: code ? { code, message: 'Fixed public diagnostic.' } : null },
+    } : source) }
+  }
+  it('allows an unverified configured first search without claiming upstream success', async () => {
+    const fetch = mockApi()
+    fetch.mockImplementation(async path => jsonResponse(path === '/api/health' ? health : operational('unverified', true)))
+    const app = mount(App); await flushPromises(); await app.find('#search-query').setValue('Title')
+    expect(app.text()).toContain('Backend conectado')
+    expect(app.text()).toContain('Ainda não verificado')
+    expect(app.text()).toContain('Integração implementada')
+    expect(app.text()).not.toContain('Disponível na última consulta')
+    expect(app.find<HTMLButtonElement>('.search-button').element.disabled).toBe(false)
+    app.unmount()
+  })
+  it.each([
+    ['configuration_required', 'provider_configuration_missing', 'Não configurado'],
+    ['configuration_error', 'provider_key_invalid', 'Revisar configuração'],
+    ['quota_exhausted', 'provider_daily_quota_zero', 'cota diária zero'],
+    ['rate_limited', 'provider_minute_rate_limit', 'Limite por minuto'],
+  ] as const)('disables searches and explains %s', async (state,code,label) => {
+    const fetch = mockApi()
+    fetch.mockImplementation(async path => jsonResponse(path === '/api/health' ? health : operational(state, false, code)))
+    const app = mount(App); await flushPromises(); await app.find('#search-query').setValue('Title')
+    expect(app.text()).toContain(label)
+    expect(app.text()).toContain('Backend conectado')
+    expect(app.find<HTMLButtonElement>('.search-button').element.disabled).toBe(true)
+    expect(app.find<HTMLInputElement>('input[value="google-books"]').element.disabled).toBe(true)
+    app.unmount()
+  })
+  it('refreshes quota state after failure and preserves the query and selection when configuration is corrected', async () => {
+    let exhausted = false
+    const failed: SearchSession = { ...complete, state: 'failed', hasErrors: true, sources: [{ ...session.sources[0]!,
+      state: 'rate_limited', error: { code: 'provider_daily_quota_zero', message: 'Daily quota is zero.' } }] }
+    const fetch = mockApi()
+    fetch.mockImplementation(async path => {
+      if (path === '/api/health') return jsonResponse(health)
+      if (path === '/api/sources') return jsonResponse(exhausted ? operational('quota_exhausted',false,'provider_daily_quota_zero') : operational('unverified',true))
+      if (path === '/api/search') return jsonResponse({apiVersion: '1', session},202)
+      exhausted = true
+      return jsonResponse(results(failed, []))
+    })
+    const app = mount(App); await flushPromises()
+    await app.find('#search-query').setValue('A preserved query')
+    await app.find('#period').setValue('nineteenth'); await app.find('#language').setValue('la')
+    await app.find('#bibliographic-search').trigger('submit'); await flushPromises()
+    expect(app.find('.search-results').text()).toContain('cota diária zero')
+    expect(app.find('.search-results').text()).not.toContain('Nenhum resultado')
+    expect(app.find<HTMLButtonElement>('.search-button').element.disabled).toBe(true)
+    exhausted = false
+    await app.find('.section-heading button').trigger('click'); await flushPromises()
+    expect(app.find<HTMLInputElement>('#search-query').element.value).toBe('A preserved query')
+    expect(app.find<HTMLSelectElement>('#language').element.value).toBe('la')
+    expect(app.find<HTMLSelectElement>('#period').element.value).toBe('nineteenth')
+    expect(app.find<HTMLInputElement>('input[value="google-books"]').element.checked).toBe(true)
+    expect(app.find<HTMLButtonElement>('.search-button').element.disabled).toBe(false)
+    app.unmount()
+  })
+})

@@ -5,6 +5,7 @@
 #include <condition_variable>
 #include <future>
 #include <mutex>
+#include <random>
 
 using namespace liberomnia;
 using namespace liberomnia::search;
@@ -41,6 +42,11 @@ BooksHttpResponse page(std::vector<Json::Value> volumes = {}, int total = -1) {
     if (!volumes.empty()) for (auto& v : volumes) root["items"].append(v);
     return {200, Json::writeString(Json::StreamWriterBuilder{}, root), {}, {}};
 }
+GoogleBooksOptions configured_options(GoogleBooksOptions options = {}) {
+    // An opaque, ephemeral value is consumed only by the controlled transport.
+    options.api_key = std::to_string(std::random_device{}());
+    return options;
+}
 struct Harness {
     std::shared_ptr<Client> client = std::make_shared<Client>();
     std::shared_ptr<BooksRateLimiter> limiter = std::make_shared<BooksRateLimiter>();
@@ -49,7 +55,7 @@ struct Harness {
     std::stop_source stop;
     std::optional<ProviderResult> result;
     int completions{};
-    explicit Harness(GoogleBooksOptions options = {}) : provider(std::make_shared<GoogleBooksProvider>(client, options, limiter)) { request.text = "Fixture"; }
+    explicit Harness(GoogleBooksOptions options = {}) : provider(std::make_shared<GoogleBooksProvider>(client, configured_options(options), limiter)) { request.text = "Fixture"; }
     void start() { provider->search(request, stop.get_token(), [this](ProviderResult r) { result = std::move(r); ++completions; }); }
 };
 }
@@ -206,15 +212,17 @@ TEST(GoogleBooks, SharedRateLimiterHonorsConcurrencyMinuteAndRetryAfter) {
     now += std::chrono::seconds(119); EXPECT_FALSE(limiter->acquire()); now += std::chrono::seconds(1); EXPECT_TRUE(limiter->acquire());
     limiter->release(); EXPECT_TRUE(limiter->acquire()); limiter->release(); EXPECT_FALSE(limiter->acquire());
     limiter->defer("Wed, 01 Jan 2031 00:00:00 GMT"); EXPECT_FALSE(limiter->ready());
-    Harness a, b; b.provider = std::make_shared<GoogleBooksProvider>(b.client,GoogleBooksOptions{},a.limiter);
+    Harness a, b; b.provider = std::make_shared<GoogleBooksProvider>(b.client,configured_options(),a.limiter);
     a.start(); a.client->call().callback({429,{},"120",{}}); b.start(); ASSERT_TRUE(b.result); EXPECT_EQ(b.result->error,ProviderError::rate_limited); EXPECT_TRUE(b.client->calls.empty());
 }
 TEST(GoogleBooks, ReadinessUpdatesCatalogAndPreservesPlannedProviders) {
     Harness h; auto sources = source_catalog(); for (auto& source : sources) if (source.id == "google-books") source = h.provider->source();
     ProviderRegistry registry(sources,{h.provider}); EXPECT_TRUE(registry.search_available());
-    h.provider->check_availability(); EXPECT_FALSE(registry.search_available());
+    EXPECT_TRUE(h.client->calls.empty());
+    EXPECT_EQ(h.provider->operational_status()->state,"unverified");
+    h.start(); EXPECT_TRUE(registry.search_available());
     auto body = http::sources_response(registry)->getJsonObject();
-    for (const auto& source : (*body)["sources"]) EXPECT_EQ(source["implementationStatus"].asString(),source["id"] == "google-books" ? "temporarily_unavailable" : "planned");
+    for (const auto& source : (*body)["sources"]) EXPECT_EQ(source["implementationStatus"].asString(),source["id"] == "google-books" ? "available" : "planned");
     h.client->call().callback(page()); EXPECT_TRUE(registry.search_available());
 }
 TEST(GoogleBooks, CoordinatorFiltersEditionDatesAcrossArbitraryCenturies) {
@@ -246,6 +254,170 @@ TEST(GoogleBooks, RacingCancellationAndTransportCallbacksCompleteOnce) {
 TEST(GoogleBooks, InvalidKeyIsAuthenticationAndDisablesCatalogReadiness) {
     Harness h; h.start();
     h.client->call().callback({400,R"({"error":{"details":[{"reason":"API_KEY_INVALID"}]}})",{}, {}});
-    EXPECT_EQ(h.result->error,ProviderError::authentication);
+    EXPECT_EQ(h.result->error,ProviderError::key_invalid);
     EXPECT_EQ(h.provider->implementation_status(),ImplementationStatus::temporarily_unavailable);
+}
+
+TEST(GoogleBooksOperations, StartupIsUnverifiedAndNeverMakesAnExternalRequest) {
+    Harness h;
+    EXPECT_TRUE(h.client->calls.empty());
+    auto status = *h.provider->operational_status();
+    EXPECT_TRUE(status.implemented); EXPECT_TRUE(status.configured); EXPECT_TRUE(status.search_allowed);
+    EXPECT_EQ(status.state,"unverified"); EXPECT_FALSE(status.last_successful_at);
+    h.start(); h.client->call().callback(page());
+    status = *h.provider->operational_status();
+    EXPECT_EQ(status.state,"available"); EXPECT_TRUE(status.last_successful_at); EXPECT_FALSE(status.error);
+}
+TEST(GoogleBooksOperations, MissingConfigurationAndDisabledNeverSendRequests) {
+    for (bool enabled : {false,true}) {
+        auto client = std::make_shared<Client>(); GoogleBooksOptions options; options.enabled = enabled;
+        GoogleBooksProvider provider(client, options);
+        auto status = *provider.operational_status();
+        EXPECT_EQ(status.state,enabled ? "configuration_required" : "disabled");
+        EXPECT_TRUE(status.implemented); EXPECT_FALSE(status.configured); EXPECT_FALSE(status.search_allowed);
+        domain::SearchRequest request; request.text = "Fixture";
+        int completions = 0;
+        provider.search(request,{},[&](ProviderResult r){ ++completions; EXPECT_EQ(r.error,ProviderError::configuration_missing); });
+        EXPECT_EQ(completions,1); EXPECT_TRUE(client->calls.empty());
+    }
+}
+namespace {
+BooksHttpResponse failure(int code, std::string reason, std::string limit = {}, std::string value = {}) {
+    Json::Value root;
+    auto& e = root["error"]; e["code"] = code;
+    e["status"] = code == 429 ? "RESOURCE_EXHAUSTED" : "PERMISSION_DENIED";
+    e["details"][0]["reason"] = reason;
+    auto& meta = e["details"][0]["metadata"];
+    meta["quota_limit"] = limit;
+    if (!value.empty()) meta["quota_limit_value"] = value;
+    return {code,Json::writeString(Json::StreamWriterBuilder{},root),{}, {}};
+}
+}
+TEST(GoogleBooksOperations, TypedAdministrativeErrorsLatchWithoutRetryingOrPublishingMetadata) {
+    const std::vector<std::pair<BooksHttpResponse,ProviderError>> cases{
+        {failure(400,"API_KEY_INVALID"),ProviderError::key_invalid},
+        {failure(400,""),ProviderError::blocked},
+        {{400,"{}",{},{}},ProviderError::configuration_invalid},
+        {{401,"{}",{},{}},ProviderError::authentication},
+        {{403,"{}",{},{}},ProviderError::blocked},
+        {failure(403,"SERVICE_DISABLED"),ProviderError::api_disabled},
+        {failure(403,"API_KEY_HTTP_REFERRER_BLOCKED"),ProviderError::key_restricted},
+        {failure(403,"CREDENTIALS_MISSING"),ProviderError::configuration_missing},
+        {failure(429,"QUOTA_EXCEEDED","QueriesPerDay","25"),ProviderError::quota_daily_exhausted},
+        {failure(429,"QUOTA_EXCEEDED","QueriesPerDay","0"),ProviderError::quota_daily_zero},
+        {{403,R"({"error":{"errors":[{"reason":"dailyLimitExceeded"}]}})",{},{}},ProviderError::quota_daily_exhausted},
+        {{429,R"({"error":{"message":"Quota exceeded: daily limit: 0"}})",{},{}},ProviderError::quota_daily_zero},
+    };
+    for (const auto& [response,expected] : cases) {
+        Harness h; h.start(); auto callback = h.client->call().callback; callback(response);
+        ASSERT_TRUE(h.result); EXPECT_EQ(h.result->error,expected);
+        EXPECT_FALSE(h.provider->operational_status()->search_allowed);
+        for (int i=0;i<3;++i) h.start();
+        EXPECT_EQ(h.client->calls.size(),1U); EXPECT_EQ(h.completions,4);
+        callback(page()); EXPECT_EQ(h.completions,4);
+        EXPECT_EQ(h.provider->operational_status()->error,expected);
+    }
+}
+TEST(GoogleBooksOperations, TransientFailuresRecoverOnlyOnNewUserRequestAfterCooldown) {
+    for (const auto& response : std::vector<BooksHttpResponse>{
+        {429,"{}",{},{}}, failure(429,"RATE_LIMIT_EXCEEDED","QueriesPerMinute"),
+        {500,"{}",{},{}}, {0,{}, {},ProviderError::network}, {0,{}, {},ProviderError::timed_out}, {200,"[]",{},{}},
+    }) {
+        auto now = std::chrono::steady_clock::time_point{};
+        Harness h; h.limiter = std::make_shared<BooksRateLimiter>(4,30,[&]{return now;});
+        h.provider = std::make_shared<GoogleBooksProvider>(h.client,configured_options(),h.limiter);
+        h.start(); h.client->call().callback(response);
+        ASSERT_TRUE(h.result->error); EXPECT_FALSE(h.provider->operational_status()->search_allowed);
+        if (response.body.find("QueriesPerMinute") != std::string::npos) EXPECT_EQ(h.result->error,ProviderError::rate_limit_minute);
+        h.start(); EXPECT_EQ(h.client->calls.size(),1U);
+        now += std::chrono::minutes(2);
+        EXPECT_TRUE(h.provider->operational_status()->search_allowed);
+        EXPECT_EQ(h.client->calls.size(),1U); // Time and status reads never perform probes/retries.
+        h.start(); h.client->call(1).callback(page());
+        EXPECT_EQ(h.provider->operational_status()->state,"available"); EXPECT_FALSE(h.result->error);
+    }
+}
+TEST(GoogleBooksOperations, RetryAfterNumericDateAbsentAndInvalidAreDeterministic) {
+    for (auto [header,seconds] : std::vector<std::pair<std::string,int>>{
+        {"120",120},{"Wed, 01 Jan 2025 00:02:00 GMT",120},{"",60},{"not a date",60},
+    }) {
+        auto now = std::chrono::steady_clock::time_point{};
+        auto limiter = std::make_shared<BooksRateLimiter>(4,30,[&]{return now;},[]{return std::time_t(1735689600);});
+        Harness h; h.provider = std::make_shared<GoogleBooksProvider>(h.client,configured_options(),limiter);
+        h.start(); h.client->call().callback({429,"{}",header,{}});
+        now += std::chrono::seconds(seconds-1); EXPECT_FALSE(h.provider->operational_status()->search_allowed);
+        now += std::chrono::seconds(1); EXPECT_TRUE(h.provider->operational_status()->search_allowed);
+        EXPECT_EQ(h.client->calls.size(),1U);
+    }
+}
+TEST(GoogleBooksOperations, ConcurrentFailuresAndSuccessCannotEraseDailyQuotaBlock) {
+    for (int i=0; i<20; ++i) {
+        Harness h; std::atomic<int> completed{};
+        for (int j=0;j<3;++j) h.provider->search(h.request,{},[&](ProviderResult){++completed;});
+        auto a = h.client->call(0).callback, b = h.client->call(1).callback, c = h.client->call(2).callback;
+        std::jthread first([a]{a(failure(429,"QUOTA_EXCEEDED","QueriesPerDay","0"));});
+        std::jthread second([b]{b({500,"{}",{}, {}});});
+        std::jthread third([c]{c(page());});
+        first.join(); second.join(); third.join();
+        EXPECT_EQ(completed,3); EXPECT_FALSE(h.provider->operational_status()->search_allowed);
+        EXPECT_EQ(h.provider->operational_status()->error,ProviderError::quota_daily_zero);
+    }
+}
+TEST(GoogleBooksOperations, CancelledLateErrorsDoNotPoisonOperationalState) {
+    Harness h; h.start(); auto callback=h.client->call().callback; h.stop.request_stop();
+    callback(failure(429,"QUOTA_EXCEEDED","QueriesPerDay","0"));
+    EXPECT_EQ(h.completions,1); EXPECT_EQ(h.result->error,ProviderError::cancelled);
+    EXPECT_EQ(h.provider->operational_status()->state,"unverified");
+    EXPECT_TRUE(h.provider->operational_status()->search_allowed);
+}
+TEST(GoogleBooksOperations, CatalogRedactsSecretsAndInternalProjectMetadata) {
+    Harness h;
+    const auto secret = std::to_string(std::random_device{}());
+    Json::Value body;
+    body["error"]["message"] = secret;
+    body["error"]["details"][0]["reason"] = "API_KEY_INVALID";
+    body["error"]["details"][0]["metadata"]["consumer"] = secret;
+    body["error"]["details"][0]["metadata"]["key"] = secret;
+    h.start(); h.client->call().callback({400,Json::writeString(Json::StreamWriterBuilder{},body),{}, {}});
+    ProviderRegistry registry({h.provider->source()},{h.provider});
+    auto response = http::sources_response(registry)->getJsonObject();
+    const auto serialized = Json::writeString(Json::StreamWriterBuilder{},*response);
+    EXPECT_EQ(serialized.find(secret),std::string::npos);
+    EXPECT_EQ(serialized.find("consumer"),std::string::npos);
+    EXPECT_EQ((*response)["sources"][0]["operational"]["error"]["code"],"provider_key_invalid");
+    EXPECT_FALSE((*response)["searchAvailable"].asBool());
+}
+TEST(GoogleBooksOperations, CorrectedConfigurationStartsUnverifiedWithoutProbeAndCanSearch) {
+    Harness before; before.start(); before.client->call().callback(failure(400,"API_KEY_INVALID"));
+    auto corrected = std::make_shared<GoogleBooksProvider>(before.client,configured_options(),before.limiter);
+    EXPECT_TRUE(corrected->operational_status()->search_allowed);
+    EXPECT_EQ(corrected->operational_status()->state,"unverified"); EXPECT_EQ(before.client->calls.size(),1U);
+    bool complete=false;
+    corrected->search(before.request,{},[&](ProviderResult r){complete=true;EXPECT_FALSE(r.error);});
+    before.client->call(1).callback(page()); EXPECT_TRUE(complete);
+    EXPECT_EQ(corrected->operational_status()->state,"available");
+}
+
+TEST(GoogleBooksOperations, QuotaEvidenceIsConservativeAndMalformedDetailsStaySafe) {
+    for (const auto& [body,expected] : std::vector<std::pair<std::string,ProviderError>>{
+        {R"({"error":{"details":[{"reason":"QUOTA_EXCEEDED","metadata":{"quota_unit":"1/d/{project}","quota_limit_value":0}}]}})",ProviderError::quota_daily_zero},
+        {R"({"error":{"details":[{"metadata":{"quota_limit":"QueriesPerDay","quota_limit_value":"100"}},{"metadata":{"quota_limit":"QueriesPerMinute","quota_limit_value":"0"}}]}})",ProviderError::quota_daily_exhausted},
+        {R"({"error":{"message":"Daily quota exhausted for project 0"}})",ProviderError::quota_daily_exhausted},
+        {R"({"error":{"details":[{"violations":[{"quotaId":"QueriesPerDay","quotaValue":"0"}]}]}})",ProviderError::quota_daily_zero},
+        {R"({"error":{"details":[null,[],{"reason":8,"metadata":false}],"errors":false,"message":[]}})",ProviderError::rate_limited},
+        {R"({"error":{"status":"RESOURCE_EXHAUSTED","details":[{"reason":"QUOTA_EXCEEDED"}]}})",ProviderError::rate_limited},
+    }) {
+        Harness h; h.start(); h.client->call().callback({429,body,{}, {}});
+        ASSERT_TRUE(h.result); EXPECT_EQ(h.result->error,expected);
+    }
+    Harness h; h.start();
+    auto response = failure(429,"QUOTA_EXCEEDED","QueriesPerDay","0"); response.status = 200;
+    h.client->call().callback(response); EXPECT_EQ(h.result->error,ProviderError::quota_daily_zero);
+}
+TEST(GoogleBooksOperations, DailyQuotaDoesNotSetInventedCooldownForCorrectedConfiguration) {
+    Harness h; h.start(); auto response = failure(429,"QUOTA_EXCEEDED","QueriesPerDay","0"); response.retry_after = "30";
+    h.client->call().callback(response);
+    EXPECT_TRUE(h.limiter->ready());
+    EXPECT_FALSE(h.provider->operational_status()->search_allowed);
+    EXPECT_EQ(h.provider->operational_status()->state,"quota_exhausted");
 }
