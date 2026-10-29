@@ -16,6 +16,7 @@ add_library(liberomnia_core
     src/models.cpp
     src/source_catalog.cpp
     src/provider_registry.cpp
+    src/search_provider.cpp
     src/normalization.cpp
     src/search_coordinator.cpp
 )
@@ -52,7 +53,10 @@ if(BUILD_TESTING)
     add_test(NAME http_integration
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/http_integration.py
                 $<TARGET_FILE:liberomnia_server>)
-    set_tests_properties(http_integration PROPERTIES TIMEOUT 30)
+    add_test(NAME http_configuration_required_integration
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/http_integration.py
+                $<TARGET_FILE:liberomnia_server> missing-key)
+    set_tests_properties(http_integration http_configuration_required_integration PROPERTIES TIMEOUT 30)
     add_executable(liberomnia_http_test_server tests/http_test_server.cpp)
     target_link_libraries(liberomnia_http_test_server PRIVATE liberomnia_http)
     add_test(NAME search_http_integration

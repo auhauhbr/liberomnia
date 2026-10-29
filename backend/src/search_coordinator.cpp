@@ -184,35 +184,31 @@ struct SearchCoordinator::State {
         source->records_accepted = records.size();
         source->coverage_incomplete = source->coverage_incomplete || source->result_limit_reached;
         if (result.error) {
+            int status = 502;
             switch (*result.error) {
                 case ProviderError::rate_limited:
-                    source->state = SourceState::rate_limited;
-                    source->error = error("provider_rate_limited", "Provider rate limit reached.", 429); break;
+                case ProviderError::rate_limit_minute:
+                case ProviderError::quota_daily_exhausted:
+                case ProviderError::quota_daily_zero:
+                    source->state = SourceState::rate_limited; status = 429; break;
                 case ProviderError::blocked:
-                    source->state = SourceState::blocked;
-                    source->error = error("provider_blocked", "Provider denied access.", 403); break;
-                case ProviderError::network:
-                    source->state = SourceState::failed;
-                    source->error = error("provider_network_error", "Unable to reach provider.", 502); break;
                 case ProviderError::authentication:
-                    source->state = SourceState::blocked;
-                    source->error = error("provider_authentication", "Provider credentials were rejected.", 403); break;
-                case ProviderError::invalid_response:
-                    source->state = SourceState::failed;
-                    source->error = error("invalid_provider_response", "Provider returned an invalid response.", 502); break;
-                case ProviderError::invalid_request:
-                    source->state = SourceState::failed;
-                    source->error = error("provider_invalid_request", "Provider does not accept this language or query.", 422); break;
+                case ProviderError::configuration_missing:
+                case ProviderError::configuration_invalid:
+                case ProviderError::key_invalid:
+                case ProviderError::api_disabled:
+                case ProviderError::key_restricted:
+                    source->state = SourceState::blocked; status = 403; break;
                 case ProviderError::timed_out:
-                    source->state = SourceState::timed_out;
-                    source->error = error("provider_timed_out", "Provider deadline exceeded.", 504); break;
+                    source->state = SourceState::timed_out; status = 504; break;
                 case ProviderError::cancelled:
-                    source->state = SourceState::cancelled;
-                    source->error = error("provider_cancelled", "Provider search cancelled.", 499); break;
-                case ProviderError::failed:
-                    source->state = SourceState::failed;
-                    source->error = error("provider_failed", "Provider request failed.", 502); break;
+                    source->state = SourceState::cancelled; status = 499; break;
+                case ProviderError::invalid_request:
+                    source->state = SourceState::failed; status = 422; break;
+                default: source->state = SourceState::failed; break;
             }
+            source->error = error(std::string(provider_error_code(*result.error)),
+                                  std::string(provider_error_message(*result.error)), status);
         } else if (source->records_rejected && records.empty()) {
             source->state = SourceState::failed;
             source->error = error("invalid_provider_response", "Provider returned invalid records.", 502);

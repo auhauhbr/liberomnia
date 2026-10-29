@@ -4,6 +4,7 @@
 #include "liberomnia/google_books_options.hpp"
 #include <atomic>
 #include <chrono>
+#include <ctime>
 #include <memory>
 #include <json/json.h>
 
@@ -29,8 +30,10 @@ public:
 class BooksRateLimiter {
 public:
     using Clock = std::function<std::chrono::steady_clock::time_point()>;
+    using WallClock = std::function<std::time_t()>;
     explicit BooksRateLimiter(std::size_t concurrency = 4, std::size_t per_minute = 30,
-                              Clock now = std::chrono::steady_clock::now);
+                              Clock now = std::chrono::steady_clock::now,
+                              WallClock wall_now = [] { return std::time(nullptr); });
     bool acquire();
     void release(std::string_view retry_after = {});
     void defer(std::string_view retry_after);
@@ -40,6 +43,7 @@ private:
     std::shared_ptr<State> state_;
 };
 
+struct BooksOperationalState;
 class GoogleBooksProvider final : public SearchProvider {
 public:
     explicit GoogleBooksProvider(std::shared_ptr<BooksHttpClient> client, GoogleBooksOptions options = {},
@@ -47,7 +51,7 @@ public:
     const Source& source() const noexcept override;
     ProviderCapabilities capabilities() const override;
     ImplementationStatus implementation_status() const noexcept override;
-    void check_availability();
+    std::optional<ProviderOperationalStatus> operational_status() const override;
     void search(domain::SearchRequest request, std::stop_token stop, Completion completion) override;
     static std::optional<int> publication_year(std::string_view date);
     static std::optional<domain::BibliographicRecord> record(const Json::Value& item);
@@ -57,6 +61,6 @@ private:
     GoogleBooksOptions options_;
     std::shared_ptr<BooksRateLimiter> limiter_;
     Source source_;
-    std::shared_ptr<std::atomic<bool>> ready_{std::make_shared<std::atomic<bool>>(true)};
+    std::shared_ptr<BooksOperationalState> state_;
 };
 } // namespace liberomnia::search
